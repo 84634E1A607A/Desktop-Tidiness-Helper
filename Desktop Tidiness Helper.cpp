@@ -44,14 +44,6 @@ struct EXEMPT {
     EXEMPT* pnext = nullptr;
 } exemptHead;
 
-const LPWSTR CurTime() {
-    time_t t = time(nullptr);
-    tm* ct = localtime(&t);
-    static WCHAR szt[32] = L"";
-    swprintf(szt, 32, L"%02d-%02d %02d:%02d:%02d", ct->tm_mon, ct->tm_mday, ct->tm_hour, ct->tm_min, ct->tm_sec);
-    return szt;
-}
-
 inline void DeleteQueue() {
     fpQueuefile = _wfopen(szQueuefilePath, L"rb");
     if (!fpQueuefile) return;
@@ -138,9 +130,9 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
     while (true) {
         RtlZeroMemory(pFirstFileNotifyInfo, 8192);
         ReadDirectoryChangesW(hDirectory, pFirstFileNotifyInfo, 8192, FALSE,
-            FILE_NOTIFY_CHANGE_LAST_ACCESS,
+            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME,
             &dwRet, NULL, NULL);
-        if (pFirstFileNotifyInfo->Action == FILE_ACTION_MODIFIED) {
+        if (pFirstFileNotifyInfo->Action == FILE_ACTION_ADDED) {
             do {
                 RtlZeroMemory(pFileNotifyInfo, 1024);
                 memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? pFirstFileNotifyInfo->NextEntryOffset - 1 : 1024);
@@ -161,7 +153,16 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                 WCHAR szMovedName[MAX_PATH];
                 swprintf(szMovedName, MAX_PATH, L"%ws\\%ws\\%ws", szDesktopPath, p->path, pFileNotifyInfo->FileName);
 
-                if (!MoveFile(fname, szMovedName)) continue;
+                bool flag = true;
+                while (!MoveFile(fname, szMovedName)) { 
+                    DWORD Err = GetLastError();
+                    if (Err == ERROR_SHARING_VIOLATION) Sleep(500);
+                    else if (Err == ERROR_ALREADY_EXISTS) {
+                        swprintf(szMovedName, MAX_PATH, L"%ws\\%ws\\%lld - %ws", szDesktopPath, p->path, time(nullptr), pFileNotifyInfo->FileName);
+                    }
+                    else { flag = false; break; }
+                }
+                if (!flag) continue;
 
                 WCHAR szShortcutName[MAX_PATH];
                 swprintf(szShortcutName, MAX_PATH, L"%ws.lnk", fname);
