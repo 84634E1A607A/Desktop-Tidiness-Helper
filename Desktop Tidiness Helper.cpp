@@ -52,7 +52,7 @@ inline void DeleteQueue() {
     WCHAR fname[MAX_PATH] = L"";
     for (int i = 0; i < count; i++)
     {
-        ReadFile(hQueuefile, fname, MAX_PATH * sizeof(WCHAR), nullptr, nullptr);
+        if (!ReadFile(hQueuefile, fname, MAX_PATH * sizeof(WCHAR), nullptr, nullptr)) break;
         DeleteFile(fname);
     }
     CloseHandle(hQueuefile);
@@ -78,9 +78,9 @@ inline void ReadConfig() {
     else {
         WCHAR line[512] = L"";
         DWORD fSize = GetFileSize(hConfigfile, nullptr);
-        LPWSTR pFileContent = new WCHAR[fSize];
-        RtlZeroMemory(pFileContent, fSize);
-        ReadFile(hConfigfile, pFileContent, fSize, nullptr, nullptr);
+        LPWSTR pFileContent = new WCHAR[(long long)fSize / 2 + 1];
+        RtlZeroMemory(pFileContent, fSize + sizeof(WCHAR));
+        if (!ReadFile(hConfigfile, pFileContent, fSize, nullptr, nullptr)) return;
         WCHAR* ps = pFileContent, * pe = pFileContent - 1;
         while (true) {
             if (*pe == L'\0') break;
@@ -154,7 +154,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                 pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
                 if (!lstrcmpW(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, L".lnk")) continue;
                 WCHAR fname[MAX_PATH];
-                swprintf(fname, MAX_PATH, L"%ws\\%ws", szDesktopPath, pFileNotifyInfo->FileName);
+                wsprintf(fname, L"%ws\\%ws", szDesktopPath, pFileNotifyInfo->FileName);
                 WIN32_FIND_DATAW fdata;
                 FindClose(FindFirstFile(fname, &fdata));
                 FILEINFO fInfo = { fdata.cFileName, fdata.nFileSizeLow };
@@ -166,21 +166,21 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                 }
                 if (!p) continue;
                 WCHAR szMovedName[MAX_PATH];
-                swprintf(szMovedName, MAX_PATH, L"%ws\\%ws\\%ws", szDesktopPath, p->path, pFileNotifyInfo->FileName);
+                wsprintf(szMovedName, L"%ws\\%ws\\%ws", szDesktopPath, p->path, pFileNotifyInfo->FileName);
 
                 bool flag = true;
                 while (!MoveFile(fname, szMovedName)) { 
                     DWORD Err = GetLastError();
                     if (Err == ERROR_SHARING_VIOLATION) Sleep(500);
                     else if (Err == ERROR_ALREADY_EXISTS) {
-                        swprintf(szMovedName, MAX_PATH, L"%ws\\%ws\\%lld - %ws", szDesktopPath, p->path, time(nullptr), pFileNotifyInfo->FileName);
+                        wsprintf(szMovedName, L"%ws\\%ws\\%lld - %ws", szDesktopPath, p->path, time(nullptr), pFileNotifyInfo->FileName);
                     }
                     else { flag = false; break; }
                 }
                 if (!flag) continue;
 
                 WCHAR szShortcutName[MAX_PATH];
-                swprintf(szShortcutName, MAX_PATH, L"%ws.lnk", fname);
+                wsprintf(szShortcutName, L"%ws.lnk", fname);
                 IShellLink* psl;
                 if (!SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) continue;
                 HRESULT hr = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&psl));
@@ -231,9 +231,11 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     ReadConfig();
     CloseHandle(hConfigfile);
+    hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    SetFilePointer(hConfigfile, 0, nullptr, FILE_END);
 
     // Init Queue
-    swprintf(szQueuefilePath, MAX_PATH, L"%ws\\queue", szHomePath);
+    wsprintf(szQueuefilePath, L"%ws\\queue", szHomePath);
     DeleteQueue();
     hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 
@@ -262,7 +264,7 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir) {
     vector<FILEINFO> fInfo;
     WIN32_FIND_DATAW findData = {};
     WCHAR szFindCommand[MAX_PATH];
-    swprintf(szFindCommand, MAX_PATH, L"%ws\\*", dir);
+    wsprintf(szFindCommand, L"%ws\\*", dir);
     HANDLE hFind = FindFirstFileW(szFindCommand, &findData);
     if (hFind == INVALID_HANDLE_VALUE) return fInfo;
     do {
@@ -270,7 +272,7 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir) {
         fInfo.push_back({ findData.cFileName, findData.nFileSizeLow });
         if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             WCHAR dfs[MAX_PATH];
-            swprintf(dfs, MAX_PATH, L"%ws\\%ws", dir, findData.cFileName);
+            wsprintf(dfs, L"%ws\\%ws", dir, findData.cFileName);
             vector<FILEINFO> ret = IndexerWorker(dfs);
             fInfo.insert(fInfo.end(), ret.begin(), ret.end());
         }
@@ -315,8 +317,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 DRIVE* p = driveHead.pnext;
                 while (p && p->uuid != serialNumber) p = p->pnext;
                 if (!p) {
-                    WCHAR szString1[256] = L"";
-                    swprintf(szString1, 256, L"\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n", serialNumber, volumeName);
+                    WCHAR szString1[MAX_PATH] = L"";
+                    wsprintf(szString1, L"\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n", serialNumber, volumeName);
                     WriteFile(hConfigfile, szString1, lstrlenW(szString1) * sizeof(WCHAR), nullptr, nullptr);
                     FlushFileBuffers(hConfigfile);
                 }
