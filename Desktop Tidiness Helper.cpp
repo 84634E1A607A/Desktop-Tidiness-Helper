@@ -17,7 +17,7 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[] = L"DTH";                       // The title bar text
 WCHAR szWindowClass[] = L"My Window Class";     // the main window class name
 WCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szDesktopPath[MAX_PATH];
-FILE* fpConfigfile, * fpQueuefile;
+HANDLE hConfigfile, hQueuefile;
 
 // Structs
 struct FILEINFO {
@@ -45,12 +45,17 @@ struct EXEMPT {
 } exemptHead;
 
 inline void DeleteQueue() {
-    fpQueuefile = _wfopen(szQueuefilePath, L"rb");
-    if (!fpQueuefile) return;
+    hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, 0);
+    if (hQueuefile == INVALID_HANDLE_VALUE) return;
+    DWORD fSize = GetFileSize(hQueuefile, nullptr);
+    DWORD count = fSize / MAX_PATH;
     WCHAR fname[MAX_PATH] = L"";
-    while (fread(fname, MAX_PATH, 1, fpQueuefile))
+    for (int i = 0; i < count; i++)
+    {
+        ReadFile(hQueuefile, fname, MAX_PATH * sizeof(WCHAR), nullptr, nullptr);
         DeleteFile(fname);
-    fclose(fpQueuefile);
+    }
+    CloseHandle(hQueuefile);
 }
 
 // Trim; Delete Notes
@@ -64,14 +69,24 @@ inline void trim(LPWSTR str) {
 }
 
 inline void ReadConfig() {
-    if (!fpConfigfile) {
-        fpConfigfile = _wfopen(szConfigfilePath, L"w");
-        fwprintf(fpConfigfile, L"# Config\n\n");
-        fclose(fpConfigfile);
+    if (hConfigfile == INVALID_HANDLE_VALUE) {
+        hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+        WCHAR szString1[] = L"# Config\n\n";
+        WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(WCHAR), nullptr, nullptr);
+        CloseHandle(hConfigfile);
     }
     else {
         WCHAR line[512] = L"";
-        while (fgetws(line, 512, fpConfigfile)) {
+        DWORD fSize = GetFileSize(hConfigfile, nullptr);
+        LPWSTR pFileContent = new WCHAR[fSize];
+        RtlZeroMemory(pFileContent, fSize);
+        ReadFile(hConfigfile, pFileContent, fSize, nullptr, nullptr);
+        WCHAR* ps = pFileContent, * pe = pFileContent - 1;
+        while (true) {
+            if (*pe == L'\0') break;
+            ps = pe + 1; pe = ps;
+            while (*pe != L'\n' && *pe != L'\0') pe++;
+            memcpy(line, ps, (pe - ps + 1) * sizeof(WCHAR));
 
             trim(line);
             int len = lstrlenW(line);
@@ -181,8 +196,8 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                     psl->Release();
                 }
                 CoUninitialize();
-                fwrite(szShortcutName, MAX_PATH, 1, fpQueuefile);
-                fflush(fpQueuefile);
+                WriteFile(hQueuefile, szShortcutName, MAX_PATH * sizeof(WCHAR), nullptr, nullptr);
+                FlushFileBuffers(hQueuefile);
             } while (pFileNotifyInfo->NextEntryOffset);
         }
     }
@@ -213,14 +228,14 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     // Init Config
     wsprintf(szConfigfilePath, L"%ws\\config.ini", szHomePath);
-    fpConfigfile = _wfopen(szConfigfilePath, L"r");
+    hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     ReadConfig();
-    fpConfigfile = _wfreopen(szConfigfilePath, L"a", fpConfigfile);
+    CloseHandle(hConfigfile);
 
     // Init Queue
-    wsprintf(szQueuefilePath, L"%ws\\queue", szHomePath);
+    swprintf(szQueuefilePath, MAX_PATH, L"%ws\\queue", szHomePath);
     DeleteQueue();
-    fpQueuefile = _wfopen(szQueuefilePath, L"wb");
+    hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 
     // Init Desktop Path
     LPITEMIDLIST pidl;
@@ -239,8 +254,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 }
 
 void ExitInstance() {
-    fclose(fpConfigfile);
-    fclose(fpQueuefile);
+    CloseHandle(hConfigfile);
+    CloseHandle(hQueuefile);
 }
 
 vector<FILEINFO> IndexerWorker(LPWSTR dir) {
@@ -300,8 +315,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 DRIVE* p = driveHead.pnext;
                 while (p && p->uuid != serialNumber) p = p->pnext;
                 if (!p) {
-                    fwprintf(fpConfigfile, L"\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n", serialNumber, volumeName);
-                    fflush(fpConfigfile);
+                    WCHAR szString1[256] = L"";
+                    swprintf(szString1, 256, L"\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n", serialNumber, volumeName);
+                    WriteFile(hConfigfile, szString1, lstrlenW(szString1) * sizeof(WCHAR), nullptr, nullptr);
+                    FlushFileBuffers(hConfigfile);
                 }
                 else {
                     if (p->path[0] == L'\0') continue;
