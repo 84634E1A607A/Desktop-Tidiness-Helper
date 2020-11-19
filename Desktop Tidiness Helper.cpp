@@ -45,7 +45,7 @@ struct EXEMPT {
 } exemptHead;
 
 inline void DeleteQueue() {
-    hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, 0);
+    hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_DELETE_ON_CLOSE, 0);
     if (hQueuefile == INVALID_HANDLE_VALUE) return;
     DWORD fSize = GetFileSize(hQueuefile, nullptr);
     DWORD count = fSize / MAX_PATH;
@@ -86,6 +86,7 @@ inline void ReadConfig() {
             if (*pe == L'\0') break;
             ps = pe + 1; pe = ps;
             while (*pe != L'\n' && *pe != L'\0') pe++;
+            RtlZeroMemory(line, 512 * sizeof(WCHAR));
             memcpy(line, ps, (pe - ps + 1) * sizeof(WCHAR));
 
             trim(line);
@@ -173,7 +174,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                     DWORD Err = GetLastError();
                     if (Err == ERROR_SHARING_VIOLATION) Sleep(500);
                     else if (Err == ERROR_ALREADY_EXISTS) {
-                        wsprintf(szMovedName, L"%ws\\%ws\\%lld - %ws", szDesktopPath, p->path, time(nullptr), pFileNotifyInfo->FileName);
+                        wsprintf(szMovedName, L"%ws\\%ws\\%d - %ws", szDesktopPath, p->path, (int)time(nullptr), pFileNotifyInfo->FileName);
                     }
                     else { flag = false; break; }
                 }
@@ -237,7 +238,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     // Init Queue
     wsprintf(szQueuefilePath, L"%ws\\queue", szHomePath);
     DeleteQueue();
-    hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 
     // Init Desktop Path
     LPITEMIDLIST pidl;
@@ -321,6 +322,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     wsprintf(szString1, L"\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n", serialNumber, volumeName);
                     WriteFile(hConfigfile, szString1, lstrlenW(szString1) * sizeof(WCHAR), nullptr, nullptr);
                     FlushFileBuffers(hConfigfile);
+                    DRIVE* nDrive = new DRIVE;
+                    nDrive->pnext = driveHead.pnext;
+                    nDrive->uuid = serialNumber;
+                    driveHead.pnext = nDrive;
                 }
                 else {
                     if (p->path[0] == L'\0') continue;
