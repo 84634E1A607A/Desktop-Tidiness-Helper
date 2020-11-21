@@ -2,13 +2,17 @@
 
 
 #include "framework.h"
+#include "resource.h"
 #include <stdio.h>
 #include <Dbt.h>
 #include <ShlObj.h>
+#include <shellapi.h>
 #include <time.h>
 #include <mutex>
 #include <vector>
 #include <algorithm>
+
+#define WM_TRAYICON (WM_USER + 1)
 
 using namespace std;
 
@@ -29,6 +33,7 @@ WCHAR szgLogs[][128] = {                        // {0: Start, 1: Config Loaded, 
 WCHAR szLogBuffer[256];
 WCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH];
 HANDLE hConfigfile, hQueuefile, hLogfile;
+NOTIFYICONDATA NotifyIconData;
 
 // Structs
 struct FILEINFO {
@@ -318,12 +323,26 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     HANDLE hMonitor = CreateThread(nullptr, 0, Monitor, nullptr, 0, nullptr);
 
+    // Notification Icon
+    HICON hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(TRAY_ICON));
+    NotifyIconData.cbSize = sizeof(NOTIFYICONDATA);
+    NotifyIconData.hWnd = hWnd;
+    NotifyIconData.uID = 0;
+    NotifyIconData.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    NotifyIconData.uCallbackMessage = WM_TRAYICON;
+    NotifyIconData.hIcon = hIcon;
+    NotifyIconData.uVersion = 3;
+    lstrcpy(NotifyIconData.szTip, L"Desktop Tidiness Helper");
+    if (!Shell_NotifyIcon(NIM_ADD, &NotifyIconData)) return FALSE;
+    if (!Shell_NotifyIcon(NIM_SETVERSION, &NotifyIconData)) return FALSE;
+
     return TRUE;
 }
 
 void ExitInstance() {
     CloseHandle(hConfigfile);
     CloseHandle(hQueuefile);
+    Shell_NotifyIcon(NIM_DELETE, &NotifyIconData);
 }
 
 vector<FILEINFO> IndexerWorker(LPWSTR dir) {
@@ -415,6 +434,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 wsprintf(szLogBuffer, szgLogs[3], CurTime(), volumeLetter);
                 WriteLog();
             }
+            break;
+        }
+        default: {
+            break;
+        }
+        }
+        break;
+    }
+    case WM_TRAYICON: {
+        static clock_t cl = 0;
+        clock_t cc = clock();
+        switch LOWORD(lParam) {
+        case WM_CONTEXTMENU: {
+            if (cc - cl <= 1000) { cl = cc; break; }
+            cl = cc;
+            ShellExecute(hWnd, L"open", szConfigfilePath, nullptr, nullptr, SW_NORMAL);
+            break;
+        }
+        case NIN_SELECT:
+        case NIN_KEYSELECT: {
+            if (cc - cl <= 1000) { cl = cc; break; }
+            cl = cc;
+            ShellExecute(hWnd, L"open", szLogfilePath, nullptr, nullptr, SW_NORMAL);
             break;
         }
         default: {
