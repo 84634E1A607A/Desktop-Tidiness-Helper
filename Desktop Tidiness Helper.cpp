@@ -20,7 +20,7 @@ using namespace std;
 HINSTANCE hInst;                                // Current instance
 WCHAR szTitle[] = L"DTH";                       // The title bar text
 WCHAR szWindowClass[] = L"My Window Class";     // The main window class name
-WCHAR szgLogs[][128] = {                        // {0: Start, 1: Config Loaded, 2: Device Arrival, 3: Device Removal, 4: Error Moving File, 5: Config Created, 6: Complete Moving File, 7: Error monitoring}
+WCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload}
     L"\n[%ws] Program Start\n",
     L"[%ws] Config Loaded\n",
     L"[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\"\n",
@@ -28,12 +28,15 @@ WCHAR szgLogs[][128] = {                        // {0: Start, 1: Config Loaded, 
     L"[%ws] Error encontered when moving file \"%ws\": %ws",
     L"[%ws] Config Created\n",
     L"[%ws] File move complete: \"%ws\" --> \"%ws\"\n",
-    L"[%ws] Error encontered when opening monitor: %wsVardump: DesktopPath=\"%ws\""
+    L"[%ws] Error encontered when opening monitor: %wsVardump: DesktopPath=\"%ws\"",
+    L"[%ws] Config is being changed, program paused\n",
+    L"[%ws] Config reloaded, program continues\n"
 };
 WCHAR szLogBuffer[256];
 WCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH];
 HANDLE hConfigfile, hQueuefile, hLogfile;
 NOTIFYICONDATA NotifyIconData;
+bool bPaused;
 
 // Structs
 struct FILEINFO {
@@ -303,6 +306,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     // Log config init
     wsprintf(szLogBuffer, szgLogs[1], CurTime());
+    WriteLog();
     
 
     // Init Queue
@@ -375,6 +379,50 @@ DWORD WINAPI Indexer(LPVOID lpParameter) {
     return 0;
 }
 
+DWORD WINAPI ConfigEditHandler(LPVOID lpParameter) {
+    bPaused = true;
+
+    // Log config being changed
+    wsprintf(szLogBuffer, szgLogs[8], CurTime());
+    WriteLog();
+
+    CloseHandle(hConfigfile);
+    
+    // Clear drive linking list
+    DRIVE* pd = driveHead.pnext;
+    while (pd) {
+        driveHead.pnext = pd->pnext;
+        delete pd;
+        pd = driveHead.pnext;
+    }
+
+    // Exec
+    SHELLEXECUTEINFO ExecInfo = {};
+    ExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+    ExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+    ExecInfo.hwnd = (HWND)lpParameter;
+    ExecInfo.lpVerb = L"open";
+    ExecInfo.lpFile = szConfigfilePath;
+    ExecInfo.nShow = SW_NORMAL;
+    ExecInfo.hInstApp = NULL;
+    ExecInfo.hProcess = INVALID_HANDLE_VALUE;
+    ShellExecuteEx(&ExecInfo);
+    WaitForSingleObject(ExecInfo.hProcess, INFINITE);
+
+    // Reload config
+    hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    ReadConfig();
+    CloseHandle(hConfigfile);
+    hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    SetFilePointer(hConfigfile, 0, nullptr, FILE_END);
+
+    // Log config reinit
+    wsprintf(szLogBuffer, szgLogs[9], CurTime());
+    WriteLog();
+    bPaused = false;
+    return 0;
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
@@ -403,6 +451,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 // Log drive arrival
                 wsprintf(szLogBuffer, szgLogs[2], CurTime(), volumeName, volumeLetter);
                 WriteLog();
+
+                if (bPaused) break;
 
                 DRIVE* p = driveHead.pnext;
                 while (p && p->uuid != serialNumber) p = p->pnext;
@@ -442,14 +492,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     }
+                   // Tray Icon
     case WM_TRAYICON: {
+        if (bPaused) break;
         static clock_t cl = 0;
         clock_t cc = clock();
         switch LOWORD(lParam) {
         case WM_CONTEXTMENU: {
             if (cc - cl <= 1000) { cl = cc; break; }
             cl = cc;
-            ShellExecute(hWnd, L"open", szConfigfilePath, nullptr, nullptr, SW_NORMAL);
+            CreateThread(nullptr, 0, ConfigEditHandler, hWnd, 0, nullptr);
             break;
         }
         case NIN_SELECT:
