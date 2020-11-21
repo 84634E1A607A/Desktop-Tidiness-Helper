@@ -16,14 +16,15 @@ using namespace std;
 HINSTANCE hInst;                                // Current instance
 WCHAR szTitle[] = L"DTH";                       // The title bar text
 WCHAR szWindowClass[] = L"My Window Class";     // The main window class name
-WCHAR szgLogs[][128] = {                        // {0: Start, 1: Config Loaded, 2: Device Arrival, 3: Device Removal, 4: Error Moving File, 5: Config Created, 6: Complete Moving File}
+WCHAR szgLogs[][128] = {                        // {0: Start, 1: Config Loaded, 2: Device Arrival, 3: Device Removal, 4: Error Moving File, 5: Config Created, 6: Complete Moving File, 7: Error monitoring}
     L"\n[%ws] Program Start\n",
     L"[%ws] Config Loaded\n",
     L"[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\"\n",
     L"[%ws] Device Ejected, VolumeLetter=\"%ws\"\n",
     L"[%ws] Error encontered when moving file \"%ws\": %ws",
     L"[%ws] Config Created\n",
-    L"[%ws] File move complete: \"%ws\" --> \"%ws\"\n"
+    L"[%ws] File move complete: \"%ws\" --> \"%ws\"\n",
+    L"[%ws] Error encontered when opening monitor: %wsVardump: DesktopPath=\"%ws\""
 };
 WCHAR szLogBuffer[256];
 WCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH];
@@ -98,7 +99,6 @@ inline void ReadConfig() {
         hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
         WCHAR szString1[] = L"# Config\n\n";
         WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(WCHAR), nullptr, nullptr);
-        CloseHandle(hConfigfile);
     }
     else {
         WCHAR line[512] = L"";
@@ -166,13 +166,31 @@ inline void ReadConfig() {
 DWORD WINAPI Monitor(LPVOID lpParameter) {
     HANDLE hDirectory = CreateFile(szDesktopPath, FILE_LIST_DIRECTORY, 
         FILE_SHARE_READ | FILE_SHARE_DELETE | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    
+    if (hDirectory == INVALID_HANDLE_VALUE) {
+        // Log open directory error
+        DWORD Err = GetLastError();
+        WCHAR szErrorMsg[128] = L"";
+        FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, Err, 0, szErrorMsg, 128, nullptr);
+        wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
+        return -1;
+    }
+    
     DWORD* Buf = new DWORD[8192], *Buf2 = new DWORD[1024], dwRet;
     FILE_NOTIFY_INFORMATION* pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf, *pFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf2;
     while (true) {
         RtlZeroMemory(pFirstFileNotifyInfo, 8192);
-        ReadDirectoryChangesW(hDirectory, pFirstFileNotifyInfo, 8192, FALSE,
+        BOOL Ret = ReadDirectoryChangesW(hDirectory, pFirstFileNotifyInfo, 8192, FALSE,
             FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME,
             &dwRet, NULL, NULL);
+        if (!Ret) {
+            // Log open directory error
+            DWORD Err = GetLastError();
+            WCHAR szErrorMsg[128] = L"";
+            FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, Err, 0, szErrorMsg, 128, nullptr);
+            wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
+            return -1;
+        }
         if (pFirstFileNotifyInfo->Action == FILE_ACTION_ADDED) {
             do {
                 RtlZeroMemory(pFileNotifyInfo, 1024);
