@@ -20,7 +20,7 @@ using namespace std;
 HINSTANCE hInst;                                // Current instance
 WCHAR szTitle[] = L"DTH";                       // The title bar text
 WCHAR szWindowClass[] = L"My Window Class";     // The main window class name
-WCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload}
+WCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created}
     L"\n[%ws] Program Start\n",
     L"[%ws] Config Loaded\n",
     L"[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\"\n",
@@ -30,7 +30,8 @@ WCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: De
     L"[%ws] File move complete: \"%ws\" --> \"%ws\"\n",
     L"[%ws] Error encontered when opening monitor: %wsVardump: DesktopPath=\"%ws\"",
     L"[%ws] Config is being changed, program paused\n",
-    L"[%ws] Config reloaded, program continues\n"
+    L"[%ws] Config reloaded, program continues\n",
+    L"[%ws] Log created\n"
 };
 WCHAR szLogBuffer[256];
 WCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH];
@@ -287,6 +288,11 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     // Init Error log
     wsprintf(szLogfilePath, L"%ws\\error.log", szHomePath);
     hLogfile = CreateFile(szLogfilePath, FILE_GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    DWORD Err = GetLastError();
+    if (!Err) {
+        wsprintf(szLogBuffer, szgLogs[10], CurTime());
+        WriteLog();
+    }
     SetFilePointer(hLogfile, 0, nullptr, FILE_END);
     wsprintf(szLogBuffer, szgLogs[0], CurTime());
     WriteLog();
