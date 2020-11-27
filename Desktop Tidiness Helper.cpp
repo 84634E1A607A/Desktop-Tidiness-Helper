@@ -283,7 +283,12 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
         return FALSE;
     }
     lstrcpyW(szHomePath, _wgetenv(L"appdata"));
-    lstrcatW(szHomePath, L"\\..\\Local\\Desktop Tidiness Helper");
+    lstrcatW(szHomePath, L"\\..\\Local\\Desktop Tidiness Helper");\
+
+    // Check if needed to create folder
+    auto attr = GetFileAttributes(szHomePath);
+    if (attr == -1 || !(attr & FILE_ATTRIBUTE_DIRECTORY))
+        CreateDirectory(szHomePath, NULL);
 
     // Init Error log
     wsprintf(szLogfilePath, L"%ws\\error.log", szHomePath);
@@ -297,10 +302,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     wsprintf(szLogBuffer, szgLogs[0], CurTime());
     WriteLog();
 
-    // Check if needed to create folder
-    auto attr = GetFileAttributes(szHomePath);
-    if (attr == -1 || !(attr & FILE_ATTRIBUTE_DIRECTORY))
-        CreateDirectory(szHomePath, NULL);
 
     // Init Config
     wsprintf(szConfigfilePath, L"%ws\\config.ini", szHomePath);
