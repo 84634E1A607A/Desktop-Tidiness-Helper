@@ -18,62 +18,62 @@ using namespace std;
 
 // Global Variables:
 HINSTANCE hInst;                                // Current instance
-WCHAR szTitle[] = L"DTH";                       // The title bar text
-WCHAR szWindowClass[] = L"My Window Class";     // The main window class name
-WCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created}
-    L"\n[%ws] Program Start\n",
-    L"[%ws] Config Loaded\n",
-    L"[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\"\n",
-    L"[%ws] Device Ejected, VolumeLetter=\"%ws\"\n",
-    L"[%ws] Error encontered when moving file \"%ws\": %ws",
-    L"[%ws] Config Created\n",
-    L"[%ws] File move complete: \"%ws\" --> \"%ws\"\n",
-    L"[%ws] Error encontered when opening monitor: %wsVardump: DesktopPath=\"%ws\"",
-    L"[%ws] Config is being changed, program paused\n",
-    L"[%ws] Config reloaded, program continues\n",
-    L"[%ws] Log created\n"
+TCHAR szTitle[] = TEXT("DTH");                       // The title bar text
+TCHAR szWindowClass[] = TEXT("My Window Class");     // The main window class name
+TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created}
+    TEXT("\n[%ws] Program Start\n"),
+    TEXT("[%ws] Config Loaded\n"),
+    TEXT("[%ws] Device Inserted, VolumeName=\"%ws\"), VolumeLetter=\"%ws\"\n"),
+    TEXT("[%ws] Device Ejected, VolumeLetter=\"%ws\"\n"),
+    TEXT("[%ws] Error encontered when moving file \"%ws\": %ws"),
+    TEXT("[%ws] Config Created\n"),
+    TEXT("[%ws] File move complete: \"%ws\" --> \"%ws\"\n"),
+    TEXT("[%ws] Error encontered when opening monitor: %wsVardump: DesktopPath=\"%ws\""),
+    TEXT("[%ws] Config is being changed, program paused\n"),
+    TEXT("[%ws] Config reloaded, program continues\n"),
+    TEXT("[%ws] Log created\n")
 };
-WCHAR szLogBuffer[256];
-WCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH];
+TCHAR szLogBuffer[256];
+TCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH];
 HANDLE hConfigfile, hQueuefile, hLogfile;
 NOTIFYICONDATA NotifyIconData;
 bool bPaused;
 
 // Structs
 struct FILEINFO {
-    WCHAR name[MAX_PATH] = L"";
+    TCHAR name[MAX_PATH] = TEXT("");
     DWORD size = 0;
-    FILEINFO(LPWSTR n, DWORD s) { lstrcpyW(name, n); size = s; }
+    FILEINFO(LPWSTR n, DWORD s) { lstrcpy(name, n); size = s; }
     FILEINFO() {}
     bool operator< (const FILEINFO r) const {
-        return lstrcmpW(this->name, r.name) < 0;
+        return lstrcmp(this->name, r.name) < 0;
     }
     bool operator== (const FILEINFO r) const {
-        return !lstrcmpW(this->name, r.name) && this->size == r.size;
+        return !lstrcmp(this->name, r.name) && this->size == r.size;
     }
 };
 struct DRIVE {
     DWORD uuid = 0;
-    WCHAR path[MAX_PATH] = L"";
-    WCHAR letter[3] = L"";
+    TCHAR path[MAX_PATH] = TEXT("");
+    TCHAR letter[3] = TEXT("");
     vector<FILEINFO> files;
     DRIVE* pnext = nullptr;
 } driveHead;
 struct EXEMPT {
-    WCHAR name[MAX_PATH] = L"";
+    TCHAR name[MAX_PATH] = TEXT("");
     EXEMPT* pnext = nullptr;
 } exemptHead;
 
 inline void WriteLog() {
-    WriteFile(hLogfile, szLogBuffer, lstrlen(szLogBuffer) * sizeof(WCHAR), nullptr, nullptr);
+    WriteFile(hLogfile, szLogBuffer, lstrlen(szLogBuffer) * sizeof(TCHAR), nullptr, nullptr);
     FlushFileBuffers(hLogfile);
 }
 
 const LPWSTR CurTime() {
     time_t t = time(nullptr);
     tm* ct = localtime(&t);
-    static WCHAR szt[32] = L"";
-    swprintf(szt, 32, L"%02d-%02d %02d:%02d:%02d", ct->tm_mon, ct->tm_mday, ct->tm_hour, ct->tm_min, ct->tm_sec);
+    static TCHAR szt[32] = TEXT("");
+    swprintf(szt, 32, TEXT("%02d-%02d %02d:%02d:%02d"), ct->tm_mon, ct->tm_mday, ct->tm_hour, ct->tm_min, ct->tm_sec);
     return szt;
 }
 
@@ -82,10 +82,10 @@ inline void DeleteQueue() {
     if (hQueuefile == INVALID_HANDLE_VALUE) return;
     DWORD fSize = GetFileSize(hQueuefile, nullptr);
     DWORD count = fSize / MAX_PATH;
-    WCHAR fname[MAX_PATH] = L"";
+    TCHAR fname[MAX_PATH] = TEXT("");
     for (DWORD i = 0; i < count; i++)
     {
-        if (!ReadFile(hQueuefile, fname, MAX_PATH * sizeof(WCHAR), nullptr, nullptr)) break;
+        if (!ReadFile(hQueuefile, fname, MAX_PATH * sizeof(TCHAR), nullptr, nullptr)) break;
         DeleteFile(fname);
     }
     CloseHandle(hQueuefile);
@@ -94,10 +94,10 @@ inline void DeleteQueue() {
 // Trim; Delete Notes
 inline void trim(LPWSTR str) {
     int ps = 0, pe = 0, len = lstrlen(str);
-    while (str[ps] == L' ' || str[ps] == L'\t') ps++;
-    while (str[pe] != L'#' && pe < len) pe++;
-    while (pe && (str[pe - 1] == L' ' || str[pe - 1] == L'\t' || str[pe - 1] == L'\n')) pe--;
-    len = pe, str[len] = L'\0';
+    while (str[ps] == TEXT(' ') || str[ps] == TEXT('\t')) ps++;
+    while (str[pe] != TEXT('#') && pe < len) pe++;
+    while (pe && (str[pe - 1] == TEXT(' ') || str[pe - 1] == TEXT('\t') || str[pe - 1] == TEXT('\n'))) pe--;
+    len = pe, str[len] = TEXT('\0');
     for (int i = 0; i <= len; i++) str[i] = str[ps + i];
 }
 
@@ -106,30 +106,30 @@ inline void ReadConfig() {
         wsprintf(szLogBuffer, szgLogs[5], CurTime());
         WriteLog();
         hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-        WCHAR szString1[] = L"# Config\n\n";
-        WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(WCHAR), nullptr, nullptr);
+        TCHAR szString1[] = TEXT("# Config\n\n");
+        WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(TCHAR), nullptr, nullptr);
     }
     else {
-        WCHAR line[512] = L"";
+        TCHAR line[512] = TEXT("");
         DWORD fSize = GetFileSize(hConfigfile, nullptr);
-        LPWSTR pFileContent = new WCHAR[(long long)fSize / 2 + 1];
-        RtlZeroMemory(pFileContent, fSize + sizeof(WCHAR));
+        LPWSTR pFileContent = new TCHAR[(long long)fSize / 2 + 1];
+        RtlZeroMemory(pFileContent, fSize + sizeof(TCHAR));
         if (!ReadFile(hConfigfile, pFileContent, fSize, nullptr, nullptr)) return;
-        WCHAR* ps = pFileContent, * pe = pFileContent - 1;
+        TCHAR* ps = pFileContent, * pe = pFileContent - 1;
         while (true) {
-            if (*pe == L'\0') break;
+            if (*pe == TEXT('\0')) break;
             ps = pe + 1; pe = ps;
-            while (*pe != L'\n' && *pe != L'\0') pe++;
-            RtlZeroMemory(line, 512 * sizeof(WCHAR));
-            memcpy(line, ps, (pe - ps + 1) * sizeof(WCHAR));
+            while (*pe != TEXT('\n') && *pe != TEXT('\0')) pe++;
+            RtlZeroMemory(line, 512 * sizeof(TCHAR));
+            memcpy(line, ps, (pe - ps + 1) * sizeof(TCHAR));
 
             trim(line);
             int len = lstrlen(line);
             if (!len) continue;
 
             // Drive UUID row
-            if (line[0] == L'[') {
-                if (line[len - 1] == L']') line[--len] = L'\0';
+            if (line[0] == TEXT('[')) {
+                if (line[len - 1] == TEXT(']')) line[--len] = TEXT('\0');
                 DRIVE* nDrive = new DRIVE;
                 nDrive->pnext = driveHead.pnext;
                 nDrive->uuid = _wtoi(line + 1);
@@ -138,35 +138,39 @@ inline void ReadConfig() {
             }
 
             // Config row
-            WCHAR key[MAX_PATH] = L"", value[MAX_PATH] = L"";
+            TCHAR key[MAX_PATH] = TEXT(""), value[MAX_PATH] = TEXT("");
             int p = 0;
-            while (line[p] != L'=' && p < len) p++;
+            while (line[p] != TEXT('=') && p < len) p++;
             if (p == len) continue;
-            memcpy(key, line, p * sizeof(WCHAR)), trim(key);
-            lstrcpyW(value, line + p + 1), trim(value);
+            memcpy(key, line, p * sizeof(TCHAR)), trim(key);
+            lstrcpy(value, line + p + 1), trim(value);
             
-            if (!lstrcmpW(key, L"MovePath")) {
-                if (!driveHead.pnext || driveHead.pnext->path[0] != L'\0') continue;
-                if (value[0] == L'\"') { 
-                    value[lstrlen(value) - 1] = L'\0';
-                    lstrcpyW(driveHead.pnext->path, value + 1);
+            if (!lstrcmp(key, TEXT("MovePath"))) {
+                if (!driveHead.pnext || driveHead.pnext->path[0] != TEXT('\0')) continue;
+                if (value[0] == TEXT('\"')) { 
+                    value[lstrlen(value) - 1] = TEXT('\0');
+                    lstrcpy(driveHead.pnext->path, value + 1);
                 }
                 else {
-                    lstrcpyW(driveHead.pnext->path, value);
+                    lstrcpy(driveHead.pnext->path, value);
                 }
             }
 
-            if (!lstrcmpW(key, L"Exempt")) {
+            if (!lstrcmp(key, TEXT("Exempt"))) {
                 EXEMPT* nExempt = new EXEMPT;
                 nExempt->pnext = exemptHead.pnext;
-                if (value[0] == L'\"') {
-                    value[lstrlen(value) - 1] = L'\0';
-                    lstrcpyW(nExempt->name, value + 1);
+                if (value[0] == TEXT('\"')) {
+                    value[lstrlen(value) - 1] = TEXT('\0');
+                    lstrcpy(nExempt->name, value + 1);
                 }
                 else {
-                    lstrcpyW(nExempt->name, value);
+                    lstrcpy(nExempt->name, value);
                 }
                 exemptHead.pnext = nExempt;
+            }
+
+            if (!lstrcmp(key, TEXT("DesktopPath"))) {
+                lstrcpy(szDesktopPath, value);
             }
         }
     }
@@ -179,7 +183,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
     if (hDirectory == INVALID_HANDLE_VALUE) {
         // Log open directory error
         DWORD Err = GetLastError();
-        WCHAR szErrorMsg[128] = L"";
+        TCHAR szErrorMsg[128] = TEXT("");
         FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, Err, 0, szErrorMsg, 128, nullptr);
         wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
         return -1;
@@ -195,7 +199,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
         if (!Ret) {
             // Log open directory error
             DWORD Err = GetLastError();
-            WCHAR szErrorMsg[128] = L"";
+            TCHAR szErrorMsg[128] = TEXT("");
             FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, Err, 0, szErrorMsg, 128, nullptr);
             wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
             return -1;
@@ -205,9 +209,9 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                 RtlZeroMemory(pFileNotifyInfo, 1024);
                 memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? pFirstFileNotifyInfo->NextEntryOffset - 1 : 1024);
                 pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
-                if (!lstrcmpW(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, L".lnk")) continue;
-                WCHAR fname[MAX_PATH];
-                wsprintf(fname, L"%ws\\%ws", szDesktopPath, pFileNotifyInfo->FileName);
+                if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
+                TCHAR fname[MAX_PATH];
+                wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
                 WIN32_FIND_DATAW fdata;
                 FindClose(FindFirstFile(fname, &fdata));
                 FILEINFO fInfo = { fdata.cFileName, fdata.nFileSizeLow };
@@ -218,13 +222,13 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                     p = p->pnext;
                 }
                 if (!p) continue;
-                WCHAR szMovedName[MAX_PATH];
-                wsprintf(szMovedName, L"%ws\\%ws\\%ws", szDesktopPath, p->path, pFileNotifyInfo->FileName);
+                TCHAR szMovedName[MAX_PATH];
+                wsprintf(szMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
 
                 bool flag = true;
                 while (!MoveFile(fname, szMovedName)) { 
                     DWORD Err = GetLastError();
-                    WCHAR szErrorMsg[128] = L"";
+                    TCHAR szErrorMsg[128] = TEXT("");
                     
                     // Log Error
                     FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, Err, 0, szErrorMsg, 128, nullptr);
@@ -233,13 +237,13 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                     
                     if (Err == ERROR_SHARING_VIOLATION) Sleep(500);
                     else if (Err == ERROR_ALREADY_EXISTS)
-                        wsprintf(szMovedName, L"%ws\\%ws\\%d - %ws", szDesktopPath, p->path, (int)time(nullptr), pFileNotifyInfo->FileName);
+                        wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(nullptr), pFileNotifyInfo->FileName);
                     else { flag = false; break; }
                 }
                 if (!flag) continue;
 
-                WCHAR szShortcutName[MAX_PATH];
-                wsprintf(szShortcutName, L"%ws.lnk", fname);
+                TCHAR szShortcutName[MAX_PATH];
+                wsprintf(szShortcutName, TEXT("%ws.lnk"), fname);
                 IShellLink* psl;
                 if (!SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) continue;
                 HRESULT hr = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&psl));
@@ -255,7 +259,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                     psl->Release();
                 }
                 CoUninitialize();
-                WriteFile(hQueuefile, szShortcutName, MAX_PATH * sizeof(WCHAR), nullptr, nullptr);
+                WriteFile(hQueuefile, szShortcutName, MAX_PATH * sizeof(TCHAR), nullptr, nullptr);
                 FlushFileBuffers(hQueuefile);
 
                 //Log file move complete
@@ -282,8 +286,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     {
         return FALSE;
     }
-    lstrcpyW(szHomePath, _wgetenv(L"appdata"));
-    lstrcatW(szHomePath, L"\\..\\Local\\Desktop Tidiness Helper");\
+    lstrcpy(szHomePath, _wgetenv(TEXT("appdata")));
+    lstrcat(szHomePath, TEXT("\\..\\Local\\Desktop Tidiness Helper"));
 
     // Check if needed to create folder
     auto attr = GetFileAttributes(szHomePath);
@@ -291,7 +295,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
         CreateDirectory(szHomePath, NULL);
 
     // Init Error log
-    wsprintf(szLogfilePath, L"%ws\\error.log", szHomePath);
+    wsprintf(szLogfilePath, TEXT("%ws\\error.log"), szHomePath);
     hLogfile = CreateFile(szLogfilePath, FILE_GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
     DWORD Err = GetLastError();
     if (!Err) {
@@ -304,34 +308,38 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 
     // Init Config
-    wsprintf(szConfigfilePath, L"%ws\\config.ini", szHomePath);
+    wsprintf(szConfigfilePath, TEXT("%ws\\config.ini"), szHomePath);
     hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     ReadConfig();
     CloseHandle(hConfigfile);
     hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     SetFilePointer(hConfigfile, 0, nullptr, FILE_END);
-
-    // Log config init
     wsprintf(szLogBuffer, szgLogs[1], CurTime());
     WriteLog();
     
 
     // Init Queue
-    wsprintf(szQueuefilePath, L"%ws\\queue", szHomePath);
+    wsprintf(szQueuefilePath, TEXT("%ws\\queue"), szHomePath);
     DeleteQueue();
     hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 
     // Init Desktop Path
-    LPITEMIDLIST pidl;
-    LPMALLOC pShellMalloc; 
-    if (SUCCEEDED(SHGetMalloc(&pShellMalloc))) {
-        if (SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_DESKTOP, &pidl))) {
-            SHGetPathFromIDList(pidl, szDesktopPath);
-            pShellMalloc->Free(pidl);
+    if (szDesktopPath[0] == TEXT('\0')) {
+        LPITEMIDLIST pidl;
+        LPMALLOC pShellMalloc;
+        if (SUCCEEDED(SHGetMalloc(&pShellMalloc))) {
+            if (SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_DESKTOP, &pidl))) {
+                SHGetPathFromIDList(pidl, szDesktopPath);
+                pShellMalloc->Free(pidl);
+            }
+            pShellMalloc->Release();
         }
-        pShellMalloc->Release();
+        TCHAR tmp[MAX_PATH] = TEXT("");
+        wsprintf(tmp, TEXT("DesktopPath = \"%ws\"\n"), szDesktopPath);
+        WriteFile(hConfigfile, tmp, lstrlen(tmp) * sizeof(TCHAR), nullptr, nullptr);
     }
 
+    // Init Monitor Thread
     HANDLE hMonitor = CreateThread(nullptr, 0, Monitor, nullptr, 0, nullptr);
 
     // Notification Icon
@@ -343,7 +351,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     NotifyIconData.uCallbackMessage = WM_TRAYICON;
     NotifyIconData.hIcon = hIcon;
     NotifyIconData.uVersion = 3;
-    lstrcpy(NotifyIconData.szTip, L"Desktop Tidiness Helper");
+    lstrcpy(NotifyIconData.szTip, TEXT("Desktop Tidiness Helper"));
     if (!Shell_NotifyIcon(NIM_ADD, &NotifyIconData)) return FALSE;
     if (!Shell_NotifyIcon(NIM_SETVERSION, &NotifyIconData)) return FALSE;
 
@@ -359,16 +367,16 @@ void ExitInstance() {
 vector<FILEINFO> IndexerWorker(LPWSTR dir) {
     vector<FILEINFO> fInfo;
     WIN32_FIND_DATAW findData = {};
-    WCHAR szFindCommand[MAX_PATH];
-    wsprintf(szFindCommand, L"%ws\\*", dir);
+    TCHAR szFindCommand[MAX_PATH];
+    wsprintf(szFindCommand, TEXT("%ws\\*"), dir);
     HANDLE hFind = FindFirstFileW(szFindCommand, &findData);
     if (hFind == INVALID_HANDLE_VALUE) return fInfo;
     do {
-        if (!lstrcmpW(findData.cFileName, L".") || !lstrcmpW(findData.cFileName, L"..")) continue;
+        if (!lstrcmp(findData.cFileName, TEXT(".")) || !lstrcmp(findData.cFileName, TEXT(".."))) continue;
         fInfo.push_back({ findData.cFileName, findData.nFileSizeLow });
         if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            WCHAR dfs[MAX_PATH];
-            wsprintf(dfs, L"%ws\\%ws", dir, findData.cFileName);
+            TCHAR dfs[MAX_PATH];
+            wsprintf(dfs, TEXT("%ws\\%ws"), dir, findData.cFileName);
             vector<FILEINFO> ret = IndexerWorker(dfs);
             fInfo.insert(fInfo.end(), ret.begin(), ret.end());
         }
@@ -408,7 +416,7 @@ DWORD WINAPI ConfigEditHandler(LPVOID lpParameter) {
     ExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
     ExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
     ExecInfo.hwnd = (HWND)lpParameter;
-    ExecInfo.lpVerb = L"open";
+    ExecInfo.lpVerb = TEXT("open");
     ExecInfo.lpFile = szConfigfilePath;
     ExecInfo.nShow = SW_NORMAL;
     ExecInfo.hInstApp = NULL;
@@ -443,15 +451,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_DEVICECHANGE: {
         PDEV_BROADCAST_HDR lpdb = (PDEV_BROADCAST_HDR)lParam;
         PDEV_BROADCAST_VOLUME lpdbv = (PDEV_BROADCAST_VOLUME)lpdb;
-        WCHAR volumeLetter[] = L"C:";
+        TCHAR volumeLetter[] = TEXT("C:");
         switch (wParam)
         {
         case DBT_DEVICEARRIVAL: {
             DWORD unitmask = lpdbv->dbcv_unitmask;
             for (char i = 0; i < 26; ++i, unitmask >>= 1) {
                 if (!(unitmask & 0x1)) continue;
-                volumeLetter[0] = i + L'A';
-                WCHAR volumeName[MAX_PATH] = L"";
+                volumeLetter[0] = i + TEXT('A');
+                TCHAR volumeName[MAX_PATH] = TEXT("");
                 DWORD serialNumber = 0;
                 GetVolumeInformation(volumeLetter, volumeName, MAX_PATH, &serialNumber, nullptr, nullptr, nullptr, 0);
 
@@ -464,9 +472,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 DRIVE* p = driveHead.pnext;
                 while (p && p->uuid != serialNumber) p = p->pnext;
                 if (!p) {
-                    WCHAR szString1[MAX_PATH] = L"";
-                    wsprintf(szString1, L"\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n", serialNumber, volumeName);
-                    WriteFile(hConfigfile, szString1, lstrlen(szString1) * sizeof(WCHAR), nullptr, nullptr);
+                    TCHAR szString1[MAX_PATH] = TEXT("");
+                    wsprintf(szString1, TEXT("\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n"), serialNumber, volumeName);
+                    WriteFile(hConfigfile, szString1, lstrlen(szString1) * sizeof(TCHAR), nullptr, nullptr);
                     FlushFileBuffers(hConfigfile);
                     DRIVE* nDrive = new DRIVE;
                     nDrive->pnext = driveHead.pnext;
@@ -474,8 +482,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     driveHead.pnext = nDrive;
                 }
                 else {
-                    if (p->path[0] == L'\0') continue;
-                    lstrcpyW(p->letter, volumeLetter);
+                    if (p->path[0] == TEXT('\0')) continue;
+                    lstrcpy(p->letter, volumeLetter);
                     CreateThread(nullptr, 0, Indexer, p, 0, nullptr);
                 }
             }
@@ -485,7 +493,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             DWORD unitmask = lpdbv->dbcv_unitmask;
             for (char i = 0; i < 26; ++i, unitmask >>= 1) {
                 if (!(unitmask & 0x1)) continue;
-                volumeLetter[0] = i + L'A';
+                volumeLetter[0] = i + TEXT('A');
 
                 // Log device removal
                 wsprintf(szLogBuffer, szgLogs[3], CurTime(), volumeLetter);
@@ -515,7 +523,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case NIN_KEYSELECT: {
             if (cc - cl <= 1000) { cl = cc; break; }
             cl = cc;
-            ShellExecute(hWnd, L"open", szLogfilePath, nullptr, nullptr, SW_NORMAL);
+            ShellExecute(hWnd, TEXT("open"), szLogfilePath, nullptr, nullptr, SW_NORMAL);
             break;
         }
         default: {
