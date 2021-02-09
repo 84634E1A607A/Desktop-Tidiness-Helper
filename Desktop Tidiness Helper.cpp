@@ -1,6 +1,5 @@
 #define _CRT_SECURE_NO_WARNINGS
 
-
 #include "framework.h"
 #include "resource.h"
 #include <stdio.h>
@@ -8,7 +7,6 @@
 #include <ShlObj.h>
 #include <shellapi.h>
 #include <time.h>
-#include <mutex>
 #include <vector>
 #include <algorithm>
 
@@ -16,9 +14,8 @@
 
 using namespace std;
 
-DWORD tmpnull;
-
 // Global Variables:
+DWORD dwTmpNULL;
 HINSTANCE hInst;                                // Current instance
 TCHAR szTitle[] = TEXT("DTH");                       // The title bar text
 TCHAR szWindowClass[] = TEXT("My Window Class");     // The main window class name
@@ -39,19 +36,7 @@ TCHAR szLogBuffer[256];
 TCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH];
 HANDLE hConfigfile, hQueuefile, hLogfile;
 NOTIFYICONDATA NotifyIconData;
-CRITICAL_SECTION cs;
-BYTE btDelete;
 bool bPaused;
-
-//Macros
-#define LOCAL 0x1
-#define KNOWNUDISK 0x2
-#define UNKNOWNUDISK 0x4
-#define UDISK KNOWNUDISK | UNKNOWNUDISK
-#define ALL LOCAL | KNOWNUDISK | UNKNOWNUDISK
-#define IS_DELETE(x,y) ((x) ^ (y))
-#define SET_DELETE(x,y) x |= (y)
-#define NO_DELETE(x,y) x &= ~(y)
 
 // Structs
 struct FILEINFO {
@@ -62,15 +47,15 @@ struct FILEINFO {
     bool operator< (const FILEINFO r) const {
         return lstrcmp(this->name, r.name) < 0;
     }
-    bool operator> (const FILEINFO r) const {
-        return lstrcmp(this->name, r.name) > 0;
-    }
+    //bool operator> (const FILEINFO r) const {
+    //    return lstrcmp(this->name, r.name) > 0;
+    //}
     bool operator== (const FILEINFO r) const {
         return !lstrcmp(this->name, r.name) && this->size == r.size;
     }
-    bool operator!= (const FILEINFO r) const {
-        return !(*this == r);
-    }
+    //bool operator!= (const FILEINFO r) const {
+    //    return !(*this == r);
+    //}
 };
 struct DRIVE {
     DWORD uuid = 0;
@@ -85,7 +70,7 @@ struct EXEMPT {
 } exemptHead;
 
 inline void WriteLog() {
-    WriteFile(hLogfile, szLogBuffer, lstrlen(szLogBuffer) * sizeof(TCHAR), &tmpnull, NULL);
+    WriteFile(hLogfile, szLogBuffer, lstrlen(szLogBuffer) * sizeof(TCHAR), &dwTmpNULL, NULL);
     FlushFileBuffers(hLogfile);
 }
 
@@ -105,7 +90,7 @@ inline void DeleteQueue() {
     TCHAR fname[MAX_PATH] = TEXT("");
     for (DWORD i = 0; i < count; i++)
     {
-        if (!ReadFile(hQueuefile, fname, MAX_PATH * sizeof(TCHAR), &tmpnull, NULL)) break;
+        if (!ReadFile(hQueuefile, fname, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL)) break;
         DeleteFile(fname);
     }
     CloseHandle(hQueuefile);
@@ -114,9 +99,9 @@ inline void DeleteQueue() {
 // Trim; Delete Notes
 inline void trim(LPWSTR str) {
     int ps = 0, pe = 0, len = lstrlen(str);
-    while (str[ps] == TEXT(' ') || str[ps] == TEXT('\t')) ps++;
+    while (str[ps] == TEXT(' ') || str[ps] == TEXT('\t') || str[ps] == TEXT('\"')) ps++;
     while (str[pe] != TEXT('#') && pe < len) pe++;
-    while (pe && (str[pe - 1] == TEXT(' ') || str[pe - 1] == TEXT('\t') || str[pe - 1] == TEXT('\n'))) pe--;
+    while (pe && (str[pe - 1] == TEXT(' ') || str[pe - 1] == TEXT('\t') || str[pe - 1] == TEXT('\n') || str[pe - 1] == TEXT('\"'))) pe--;
     len = pe, str[len] = TEXT('\0');
     for (int i = 0; i <= len; i++) str[i] = str[ps + i];
 }
@@ -124,25 +109,19 @@ inline void trim(LPWSTR str) {
 inline void ReadConfig() {
     
     if (hConfigfile == INVALID_HANDLE_VALUE) {
-        //EnterCriticalSection(&cs);
         wsprintf(szLogBuffer, szgLogs[5], CurTime());
         WriteLog();
         hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
         TCHAR szString1[] = TEXT("# Config\n\n");
-        WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(TCHAR), &tmpnull, NULL);
-        LeaveCriticalSection(&cs);
+        WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(TCHAR), &dwTmpNULL, NULL);
     }
     else {
-        //LeaveCriticalSection(&cs);
         TCHAR line[512] = TEXT("");
         DWORD fSize = GetFileSize(hConfigfile, NULL);
         LPWSTR pFileContent = new TCHAR[(long long)fSize / 2 + 1];
         RtlZeroMemory(pFileContent, fSize + sizeof(TCHAR));
-        if (!ReadFile(hConfigfile, pFileContent, fSize, &tmpnull, NULL)) 
-        {
-            //LeaveCriticalSection(&cs); 
+        if (!ReadFile(hConfigfile, pFileContent, fSize, &dwTmpNULL, NULL))
             return;
-        }
         TCHAR* ps = pFileContent, * pe = pFileContent - 1;
         while (true) {
             
@@ -202,35 +181,13 @@ inline void ReadConfig() {
                 lstrcpy(szDesktopPath, value);
             }           
         }
-        //LeaveCriticalSection(&cs);
     }
 }
 
 DWORD WINAPI Monitor(LPVOID lpParameter) {
-    
-    TCHAR tmp[MAX_PATH];
-    int seek = 0;
-    for (int i = 0; szDesktopPath[i] != TEXT('\0'); i++)
-    {
-        if (szDesktopPath[i] != TEXT('\"'))
-        {
-            tmp[seek] = szDesktopPath[i];
-            seek++;
-        }
-    }
-    tmp[seek] = TEXT('\0');
 
-    HANDLE hDirectory = CreateFile(tmp, FILE_LIST_DIRECTORY, 
+    HANDLE hDirectory = CreateFile(szDesktopPath, FILE_LIST_DIRECTORY, 
         FILE_SHARE_READ | FILE_SHARE_DELETE | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-    
-    //TCHAR szLogMsg[128] = TEXT("Monitor Started");
-    //WriteLog();
-//#ifdef _DEBUG
-//    MessageBox(NULL, TEXT("Monitor started"), TEXT("Message"), MB_OK);
-//#endif // DEBUG
-
-
-    // GetLastError 123
 
     if (hDirectory == INVALID_HANDLE_VALUE)
     {
@@ -238,7 +195,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
         DWORD Err = GetLastError();
         TCHAR szErrorMsg[128] = TEXT("");
         FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
-        wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, tmp);
+        wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
         WriteLog();
         return -1;
     }
@@ -256,7 +213,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
             DWORD Err = GetLastError();
             TCHAR szErrorMsg[128] = TEXT("");
             FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
-            wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, tmp);
+            wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
             return -1;
         }
         if (pFirstFileNotifyInfo->Action == FILE_ACTION_ADDED) {
@@ -266,7 +223,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                 pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
                 if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
                 TCHAR fname[MAX_PATH];
-                wsprintf(fname, TEXT("%ws\\%ws"), tmp, pFileNotifyInfo->FileName);
+                wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
                 Sleep(500);
                 WIN32_FIND_DATAW fdata;
                 FindClose(FindFirstFile(fname, &fdata));
@@ -279,7 +236,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                 }
                 if (!p) continue;
                 TCHAR szMovedName[MAX_PATH];
-                wsprintf(szMovedName, TEXT("%ws\\%ws\\%ws"), tmp, p->path, pFileNotifyInfo->FileName);
+                wsprintf(szMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
 
                 bool flag = true;
                 while (!MoveFile(fname, szMovedName)) { 
@@ -293,7 +250,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                     
                     if (Err == ERROR_SHARING_VIOLATION) Sleep(500);
                     else if (Err == ERROR_ALREADY_EXISTS)
-                        wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), tmp, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
+                        wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
                     else { flag = false; break; }
                 }
                 if (!flag) continue;
@@ -315,7 +272,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                     psl->Release();
                 }
                 CoUninitialize();
-                WriteFile(hQueuefile, szShortcutName, MAX_PATH * sizeof(TCHAR), &tmpnull, NULL);
+                WriteFile(hQueuefile, szShortcutName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
                 FlushFileBuffers(hQueuefile);
 
                 //Log file move complete
@@ -393,7 +350,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
         }
         TCHAR tmp[MAX_PATH] = TEXT("");
         wsprintf(tmp, TEXT("DesktopPath = \"%ws\"\n"), szDesktopPath);
-        WriteFile(hConfigfile, tmp, lstrlen(tmp) * sizeof(TCHAR), &tmpnull, NULL);
+        WriteFile(hConfigfile, tmp, lstrlen(tmp) * sizeof(TCHAR), &dwTmpNULL, NULL);
     }
 
     // Init Monitor Thread
@@ -534,7 +491,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 if (!p) {
                     TCHAR szString1[MAX_PATH] = TEXT("");
                     wsprintf(szString1, TEXT("\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n"), serialNumber, volumeName);
-                    WriteFile(hConfigfile, szString1, lstrlen(szString1) * sizeof(TCHAR), &tmpnull, NULL);
+                    WriteFile(hConfigfile, szString1, lstrlen(szString1) * sizeof(TCHAR), &dwTmpNULL, NULL);
                     FlushFileBuffers(hConfigfile);
                     DRIVE* nDrive = new DRIVE;
                     nDrive->pnext = driveHead.pnext;
@@ -626,7 +583,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_ LPWSTR    lpCmdLine,
                      _In_ int       nCmdShow)
 {
-    InitializeCriticalSection(&cs);
     MyRegisterClass(hInstance); if (!InitInstance (hInstance, nCmdShow)) return FALSE;
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessage(&msg); }
