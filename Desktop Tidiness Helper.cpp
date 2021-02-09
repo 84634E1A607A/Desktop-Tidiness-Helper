@@ -224,9 +224,18 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                 if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
                 TCHAR fname[MAX_PATH];
                 wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
-                Sleep(500);
                 WIN32_FIND_DATAW fdata;
                 FindClose(FindFirstFile(fname, &fdata));
+                int sz, prevsz = fdata.nFileSizeLow;
+                while (true)
+                {
+                    Sleep(500);
+                    FindClose(FindFirstFile(fname, &fdata));
+                    sz = fdata.nFileSizeLow;
+                    if (sz == prevsz) break;
+                    prevsz = sz;
+                }
+                if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue; // or it will delete all files in the directory
                 FILEINFO fInfo = { fdata.cFileName, fdata.nFileSizeLow };
                 DRIVE* p = driveHead.pnext;
                 while (p) {
