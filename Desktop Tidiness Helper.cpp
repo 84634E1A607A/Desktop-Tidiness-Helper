@@ -22,7 +22,7 @@ TCHAR szWindowClass[] = TEXT("My Window Class");     // The main window class na
 TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created}
     TEXT("\n[%ws] Program Start\n"),
     TEXT("[%ws] Config Loaded\n"),
-    TEXT("[%ws] Device Inserted, VolumeName=\"%ws\"), VolumeLetter=\"%ws\"\n"),
+    TEXT("[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\"\n"),
     TEXT("[%ws] Device Ejected, VolumeLetter=\"%ws\"\n"),
     TEXT("[%ws] Error encontered when moving file \"%ws\": %ws"),
     TEXT("[%ws] Config Created\n"),
