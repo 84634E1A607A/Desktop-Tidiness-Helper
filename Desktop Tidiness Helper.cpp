@@ -294,6 +294,94 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
         WriteLog();
         return -1;
     }
+<<<<<<< Updated upstream
+=======
+    
+    DWORD* Buf = new DWORD[8192], *Buf2 = new DWORD[1024], dwRet;
+    FILE_NOTIFY_INFORMATION* pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf, *pFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf2;
+    while (true)
+    {
+        Sleep(5000);
+        RtlZeroMemory(pFirstFileNotifyInfo, 8192);
+        BOOL Ret = ReadDirectoryChangesW(hDirectory, pFirstFileNotifyInfo, 8192, FALSE,
+            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME,
+            &dwRet, NULL, NULL);
+        if (!Ret) {
+            // Log open directory error
+            DWORD Err = GetLastError();
+            TCHAR szErrorMsg[128] = TEXT("");
+            FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
+            wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
+            return -1;
+        }
+        if (pFirstFileNotifyInfo->Action == FILE_ACTION_ADDED) {
+            do {
+                RtlZeroMemory(pFileNotifyInfo, 1024);
+                memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? static_cast<size_t>(pFirstFileNotifyInfo->NextEntryOffset) - 1 : 1024);
+                pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
+                if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
+                TCHAR fname[MAX_PATH];
+                wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
+                WIN32_FIND_DATAW fdata;
+                FindClose(FindFirstFile(fname, &fdata));
+                int sz, prevsz = fdata.nFileSizeLow;
+                while (true)
+                {
+                    Sleep(100);
+                    FindClose(FindFirstFile(fname, &fdata));
+                    sz = fdata.nFileSizeLow;
+                    if (sz == prevsz) break;
+                    prevsz = sz;
+                }
+                if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue; // or it will delete all files in the directory
+                FILEINFO fInfo = { fdata.cFileName, fdata.nFileSizeLow };
+                DRIVE* p = driveHead.pnext;
+                while (p) {
+                    auto pos = find(p->files.begin(), p->files.end(), fInfo);
+                    if (pos != p->files.end()) break;
+                    p = p->pnext;
+                }
+                if (!p) continue;
+                TCHAR szMovedName[MAX_PATH];
+                wsprintf(szMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
+
+                bool flag = true;
+                while (!MoveFile(fname, szMovedName)) { 
+                    DWORD Err = GetLastError();
+                    TCHAR szErrorMsg[128] = TEXT("");
+                    
+                    // Log Error
+                    FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
+                    wsprintf(szLogBuffer, szgLogs[4], CurTime(), fname, szErrorMsg);
+                    WriteLog();
+                    
+                    if (Err == ERROR_SHARING_VIOLATION) Sleep(500);
+                    else if (Err == ERROR_ALREADY_EXISTS)
+                        wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
+                    else { flag = false; break; }
+                }
+                if (!flag) continue;
+
+                TCHAR szShortcutName[MAX_PATH];
+                wsprintf(szShortcutName, TEXT("%ws.lnk"), fname);
+                IShellLink* psl;
+                if (!SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) continue;
+                HRESULT hr = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&psl));
+                if (SUCCEEDED(hr))
+                {
+                    psl->SetPath(szMovedName);
+                    IPersistFile* ppf;
+                    hr = psl->QueryInterface(&ppf);
+                    if (SUCCEEDED(hr)) {
+                        hr = ppf->Save(szShortcutName, TRUE);
+                        ppf->Release();
+                    }
+                    psl->Release();
+                }
+                CoUninitialize();
+                WriteFile(hQueuefile, szShortcutName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
+                FlushFileBuffers(hQueuefile);
+>>>>>>> Stashed changes
 
     DWORD* Buf = new DWORD[8192];
     RtlZeroMemory(Buf, 8192 * sizeof(DWORD));
