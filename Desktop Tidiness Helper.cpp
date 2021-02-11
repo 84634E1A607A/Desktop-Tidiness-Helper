@@ -22,7 +22,7 @@ TCHAR szWindowClass[] = TEXT("My Window Class");     // The main window class na
 TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created}
     TEXT("\n[%ws] Program Start\n"),
     TEXT("[%ws] Config Loaded\n"),
-    TEXT("[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\"\n"),
+    TEXT("[%ws] Device Inserted, VolumeName=\"%ws\"), VolumeLetter=\"%ws\"\n"),
     TEXT("[%ws] Device Ejected, VolumeLetter=\"%ws\"\n"),
     TEXT("[%ws] Error encontered when moving file \"%ws\": %ws"),
     TEXT("[%ws] Config Created\n"),
@@ -184,104 +184,9 @@ inline void ReadConfig() {
     }
 }
 
-HANDLE hDirectory;
-
-void MonitorCompletionRotine(DWORD dwErrorCode, DWORD dwNumberOfBytesTransfered, LPOVERLAPPED Overlapped) {
-    
-    PFILE_NOTIFY_INFORMATION pFirstFileNotifyInfo = (PFILE_NOTIFY_INFORMATION)Overlapped->hEvent;
-    DWORD* Buf2 = new DWORD[1024]; 
-    PFILE_NOTIFY_INFORMATION pFileNotifyInfo = (PFILE_NOTIFY_INFORMATION)Buf2;
-    if (pFirstFileNotifyInfo->Action == FILE_ACTION_ADDED) {
-        do {
-            RtlZeroMemory(pFileNotifyInfo, 1024 * sizeof(DWORD));
-            memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? static_cast<size_t>(pFirstFileNotifyInfo->NextEntryOffset) - 1 : 1024);
-            pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
-            if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
-            TCHAR fname[MAX_PATH];
-            wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
-            WIN32_FIND_DATA fdata;
-            FindClose(FindFirstFile(fname, &fdata));
-            while (!(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && fdata.nFileSizeLow == 0)
-            {
-                Sleep(50);
-                FindClose(FindFirstFile(fname, &fdata));
-            }
-            //if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue; // or it will delete all files in the directory
-            FILEINFO fInfo = { fdata.cFileName, fdata.nFileSizeLow };
-            DRIVE* p = driveHead.pnext;
-            while (p) {
-                auto pos = find(p->files.begin(), p->files.end(), fInfo);
-                if (pos != p->files.end()) break;
-                p = p->pnext;
-            }
-            if (!p) continue;
-            TCHAR szMovedName[MAX_PATH];
-            wsprintf(szMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
-
-            bool flag = true;
-            while (!MoveFile(fname, szMovedName)) {
-                DWORD Err = GetLastError();
-                TCHAR szErrorMsg[128] = TEXT("");
-
-                // Log Error
-                FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
-                wsprintf(szLogBuffer, szgLogs[4], CurTime(), fname, szErrorMsg);
-                WriteLog();
-
-                if (Err == ERROR_SHARING_VIOLATION) Sleep(500);
-                else if (Err == ERROR_ALREADY_EXISTS)
-                    wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
-                else { flag = false; break; }
-            }
-            if (!flag) continue;
-
-            TCHAR szShortcutName[MAX_PATH];
-            wsprintf(szShortcutName, TEXT("%ws.lnk"), fname);
-            IShellLink* psl;
-            if (!SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) continue;
-            HRESULT hr = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&psl));
-            if (SUCCEEDED(hr))
-            {
-                psl->SetPath(szMovedName);
-                IPersistFile* ppf;
-                hr = psl->QueryInterface(&ppf);
-                if (SUCCEEDED(hr)) {
-                    hr = ppf->Save(szShortcutName, TRUE);
-                    ppf->Release();
-                }
-                psl->Release();
-            }
-            CoUninitialize();
-            WriteFile(hQueuefile, szShortcutName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
-            FlushFileBuffers(hQueuefile);
-
-            //Log file move complete
-            wsprintf(szLogBuffer, szgLogs[6], CurTime(), fname, szMovedName);
-            WriteLog();
-
-        } while (pFileNotifyInfo->NextEntryOffset);
-    }
-
-    delete[] pFirstFileNotifyInfo, Buf2;
-
-    DWORD* Buf1 = new DWORD[8192];
-    RtlZeroMemory(Buf1, 8192 * sizeof(DWORD));
-    Overlapped->hEvent = (HANDLE)Buf1;
-    BOOL Ret = ReadDirectoryChangesW(hDirectory, (PFILE_NOTIFY_INFORMATION)Buf1, 8192 * sizeof(DWORD), FALSE,
-        FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME, NULL, Overlapped, MonitorCompletionRotine);
-    if (!Ret) {
-        // Log open directory error
-        DWORD Err = GetLastError();
-        TCHAR szErrorMsg[128] = TEXT("");
-        FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
-        wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
-        return;
-    }
-}
-
 DWORD WINAPI Monitor(LPVOID lpParameter) {
 
-    hDirectory = CreateFile(szDesktopPath, FILE_LIST_DIRECTORY, 
+    HANDLE hDirectory = CreateFile(szDesktopPath, FILE_LIST_DIRECTORY, 
         FILE_SHARE_READ | FILE_SHARE_DELETE | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
 
     if (hDirectory == INVALID_HANDLE_VALUE)
@@ -295,7 +200,6 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
         return -1;
     }
     
-<<<<<<< Updated upstream
     DWORD* Buf = new DWORD[8192], *Buf2 = new DWORD[1024], dwRet;
     FILE_NOTIFY_INFORMATION* pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf, *pFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf2;
     while (true)
@@ -377,24 +281,8 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
 
             } while (pFileNotifyInfo->NextEntryOffset);
         }
-=======
-    DWORD* Buf = new DWORD[8192];
-    RtlZeroMemory(Buf, 8192 * sizeof(DWORD));
-    OVERLAPPED overlapped;
-    overlapped.hEvent = (HANDLE)Buf;
-    BOOL Ret = ReadDirectoryChangesW(hDirectory, (PFILE_NOTIFY_INFORMATION)Buf, 8192, FALSE, 
-        FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME, NULL, &overlapped, MonitorCompletionRotine);
-    if (!Ret) {
-        // Log open directory error
-        DWORD Err = GetLastError();
-        TCHAR szErrorMsg[128] = TEXT("");
-        FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
-        wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
-        return -1;
->>>>>>> Stashed changes
     }
-
-    SleepEx(INFINITE, true);
+    delete[] Buf, Buf2;
     return 0;
 }
 
