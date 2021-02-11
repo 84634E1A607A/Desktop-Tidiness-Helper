@@ -19,10 +19,10 @@ DWORD dwTmpNULL;
 HINSTANCE hInst;                                // Current instance
 TCHAR szTitle[] = TEXT("DTH");                       // The title bar text
 TCHAR szWindowClass[] = TEXT("My Window Class");     // The main window class name
-TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created}
+TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created, 11: Move Pending}
     TEXT("\n[%ws] Program Start\n"),
     TEXT("[%ws] Config Loaded\n"),
-    TEXT("[%ws] Device Inserted, VolumeName=\"%ws\"), VolumeLetter=\"%ws\"\n"),
+    TEXT("[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\"\n"),
     TEXT("[%ws] Device Ejected, VolumeLetter=\"%ws\"\n"),
     TEXT("[%ws] Error encontered when moving file \"%ws\": %ws"),
     TEXT("[%ws] Config Created\n"),
@@ -30,7 +30,8 @@ TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: De
     TEXT("[%ws] Error encontered when opening monitor: %wsVardump: DesktopPath=\"%ws\""),
     TEXT("[%ws] Config is being changed, program paused\n"),
     TEXT("[%ws] Config reloaded, program continues\n"),
-    TEXT("[%ws] Log created\n")
+    TEXT("[%ws] Log created\n"),
+    TEXT("[%ws] Move pending: \"%ws\" --> \"%ws\"\n")
 };
 TCHAR szLogBuffer[256];
 TCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH];
@@ -47,16 +48,11 @@ struct FILEINFO {
     bool operator< (const FILEINFO r) const {
         return lstrcmp(this->name, r.name) < 0;
     }
-    //bool operator> (const FILEINFO r) const {
-    //    return lstrcmp(this->name, r.name) > 0;
-    //}
     bool operator== (const FILEINFO r) const {
         return !lstrcmp(this->name, r.name) && this->size == r.size;
     }
-    //bool operator!= (const FILEINFO r) const {
-    //    return !(*this == r);
-    //}
 };
+
 struct DRIVE {
     DWORD uuid = 0;
     TCHAR path[MAX_PATH] = TEXT("");
@@ -64,6 +60,7 @@ struct DRIVE {
     vector<FILEINFO> files;
     DRIVE* pnext = NULL;
 } driveHead;
+
 struct EXEMPT {
     TCHAR name[MAX_PATH] = TEXT("");
     EXEMPT* pnext = NULL;
@@ -82,16 +79,30 @@ const LPWSTR CurTime() {
     return szt;
 }
 
-inline void DeleteQueue() {
+inline void MoveQueue() {
     hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_DELETE_ON_CLOSE, 0);
     if (hQueuefile == INVALID_HANDLE_VALUE) return;
     DWORD fSize = GetFileSize(hQueuefile, NULL);
-    DWORD count = fSize / MAX_PATH;
-    TCHAR fname[MAX_PATH] = TEXT("");
+    DWORD count = fSize / MAX_PATH / sizeof(TCHAR) / 2;
+    TCHAR szFileName[MAX_PATH] = TEXT("");
+    TCHAR szMovedName[MAX_PATH] = TEXT("");
     for (DWORD i = 0; i < count; i++)
     {
-        if (!ReadFile(hQueuefile, fname, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL)) break;
-        DeleteFile(fname);
+        if (!ReadFile(hQueuefile, szFileName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL)) break;
+        if (!ReadFile(hQueuefile, szMovedName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL)) break;
+        if (!MoveFile(szFileName, szMovedName)) {
+            DWORD Err = GetLastError();
+            TCHAR szErrorMsg[128] = TEXT("");
+            // Log Error
+            FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
+            wsprintf(szLogBuffer, szgLogs[4], CurTime(), szFileName, szErrorMsg);
+            WriteLog();
+        }
+        else {
+            //Log file move complete
+            wsprintf(szLogBuffer, szgLogs[6], CurTime(), szFileName, szMovedName);
+            WriteLog();
+        }
     }
     CloseHandle(hQueuefile);
 }
@@ -188,7 +199,6 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
 
     HANDLE hDirectory = CreateFile(szDesktopPath, FILE_LIST_DIRECTORY, 
         FILE_SHARE_READ | FILE_SHARE_DELETE | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-
     if (hDirectory == INVALID_HANDLE_VALUE)
     {
         // Log open directory error
@@ -217,6 +227,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
             return -1;
         }
         if (pFirstFileNotifyInfo->Action == FILE_ACTION_ADDED) {
+            Sleep(50);
             do {
                 RtlZeroMemory(pFileNotifyInfo, 1024);
                 memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? static_cast<size_t>(pFirstFileNotifyInfo->NextEntryOffset) - 1 : 1024);
@@ -224,9 +235,9 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                 if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
                 TCHAR fname[MAX_PATH];
                 wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
-                Sleep(500);
-                WIN32_FIND_DATAW fdata;
-                FindClose(FindFirstFile(fname, &fdata));
+                WIN32_FIND_DATAW fdata = {};
+                while (!fdata.nFileSizeLow && !(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) 
+                { FindClose(FindFirstFile(fname, &fdata)); Sleep(20); }
                 FILEINFO fInfo = { fdata.cFileName, fdata.nFileSizeLow };
                 DRIVE* p = driveHead.pnext;
                 while (p) {
@@ -235,50 +246,14 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
                     p = p->pnext;
                 }
                 if (!p) continue;
-                TCHAR szMovedName[MAX_PATH];
-                wsprintf(szMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
-
-                bool flag = true;
-                while (!MoveFile(fname, szMovedName)) { 
-                    DWORD Err = GetLastError();
-                    TCHAR szErrorMsg[128] = TEXT("");
-                    
-                    // Log Error
-                    FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
-                    wsprintf(szLogBuffer, szgLogs[4], CurTime(), fname, szErrorMsg);
-                    WriteLog();
-                    
-                    if (Err == ERROR_SHARING_VIOLATION) Sleep(500);
-                    else if (Err == ERROR_ALREADY_EXISTS)
-                        wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
-                    else { flag = false; break; }
-                }
-                if (!flag) continue;
-
-                TCHAR szShortcutName[MAX_PATH];
-                wsprintf(szShortcutName, TEXT("%ws.lnk"), fname);
-                IShellLink* psl;
-                if (!SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) continue;
-                HRESULT hr = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&psl));
-                if (SUCCEEDED(hr))
-                {
-                    psl->SetPath(szMovedName);
-                    IPersistFile* ppf;
-                    hr = psl->QueryInterface(&ppf);
-                    if (SUCCEEDED(hr)) {
-                        hr = ppf->Save(szShortcutName, TRUE);
-                        ppf->Release();
-                    }
-                    psl->Release();
-                }
-                CoUninitialize();
-                WriteFile(hQueuefile, szShortcutName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
-                FlushFileBuffers(hQueuefile);
-
-                //Log file move complete
-                wsprintf(szLogBuffer, szgLogs[6], CurTime(), fname, szMovedName);
+                TCHAR szMovedName[MAX_PATH], szOriginalName[MAX_PATH];
+                wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL) , pFileNotifyInfo->FileName);
+                wsprintf(szOriginalName, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
+                wsprintf(szLogBuffer, szgLogs[11], CurTime(), szOriginalName, szMovedName);
                 WriteLog();
-
+                WriteFile(hQueuefile, szOriginalName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
+                WriteFile(hQueuefile, szMovedName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
+                FlushFileBuffers(hQueuefile);
             } while (pFileNotifyInfo->NextEntryOffset);
         }
     }
@@ -334,7 +309,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     // Init Queue
     wsprintf(szQueuefilePath, TEXT("%ws\\queue"), szHomePath);
-    DeleteQueue();
+    MoveQueue();
     hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 
     // Init Desktop Path
@@ -400,9 +375,6 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir) {
 }
 
 DWORD WINAPI Indexer(LPVOID lpParameter) {
-//#ifdef _DEBUG
-//	MessageBox(NULL, TEXT("Indexer started"), TEXT("Message"), MB_OK);
-//#endif // DEBUG
     DRIVE* d = (DRIVE*)lpParameter;
     vector<FILEINFO> fInfo = IndexerWorker(d->letter);
     sort(fInfo.begin(), fInfo.end());
