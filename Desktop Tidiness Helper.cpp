@@ -38,7 +38,7 @@ TCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH
 HANDLE hConfigfile, hQueuefile, hLogfile;
 NOTIFYICONDATA NotifyIconData;
 bool bPaused, bCopyUDisk;
-HMENU hMenu, hPopupMenu;
+HMENU hMenu;
 
 // Structs
 struct FILEINFO {
@@ -356,7 +356,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 	// Init Menu
 	hMenu = LoadMenu(hInstance, MAKEINTRESOURCE(IDR_MENU1));
-	hPopupMenu = GetSubMenu(hMenu, 0);
 
 	return TRUE;
 }
@@ -571,23 +570,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		static clock_t cl = 0;
 		clock_t cc = clock();
 		switch LOWORD(lParam) {
+		case NIN_SELECT:
+		case NIN_KEYSELECT:
 		case WM_CONTEXTMENU: {
-			/*if (cc - cl <= 1000) { cl = cc; break; }
-			cl = cc;
-			CreateThread(NULL, 0, ConfigEditHandler, hWnd, 0, NULL);*/
 			POINT pt;
 			GetCursorPos(&pt);
-			TrackPopupMenu(hPopupMenu, TPM_RIGHTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hWnd, NULL);
-			break;
-		}
-		case NIN_SELECT:
-		case NIN_KEYSELECT: {
-			if (cc - cl <= 1000) { cl = cc; break; }
-			cl = cc;
-			ShellExecute(hWnd, TEXT("open"), szLogfilePath, NULL, NULL, SW_NORMAL);
-			break;
-		}
-		default: {
+			SetForegroundWindow(hWnd);
+			HMENU hPopupMenu = GetSubMenu(hMenu, 0);
+			TrackPopupMenu(hPopupMenu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hWnd, NULL);
 			break;
 		}
 		}
@@ -599,7 +589,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		{
 		case ID_X_EXIT:
 		{
-			PostQuitMessage(0);
+			SendMessage(hWnd, WM_DESTROY, 0, 0);
 			break;
 		}
 		case ID_X_VIEWLOG:
@@ -652,6 +642,5 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	MyRegisterClass(hInstance); if (!InitInstance (hInstance, nCmdShow)) return FALSE;
 	MSG msg;
 	while (GetMessage(&msg, NULL, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessage(&msg); }
-	ExitInstance();
 	return (int) msg.wParam;
 }
