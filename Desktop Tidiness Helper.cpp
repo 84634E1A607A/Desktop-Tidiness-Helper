@@ -381,7 +381,7 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir, bool docopy, DRIVE* pDrive) {
 			wsprintf(tmp, TEXT("%ws\\%ws"), dir, findData.cFileName);
 			int i1, i2;
 			wsprintf(copyname, TEXT("%ws\\%ws\\%d\\"), szDesktopPath, pDrive->path, pDrive->uuid);
-			i1 = wcslen(copyname);
+			i1 = static_cast<int>(wcslen(copyname));
 			for (i2 = 0; tmp[i2] != TEXT('\0') && tmp[i2] != TEXT('\\'); i2++);
 			if (tmp[i2] == TEXT('\\'))
 			{
