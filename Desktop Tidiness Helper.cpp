@@ -110,7 +110,7 @@ inline void MoveQueue() {
 }
 
 // Trim; Delete Notes
-inline void trim(LPWSTR str) {
+inline void trim(LPTSTR str) {
 	int ps = 0, pe = 0, len = lstrlen(str);
 	while (str[ps] == TEXT(' ') || str[ps] == TEXT('\t') || str[ps] == TEXT('\"')) ps++;
 	while (str[pe] != TEXT('#') && pe < len) pe++;
@@ -125,15 +125,18 @@ inline void ReadConfig() {
 		wsprintf(szLogBuffer, szgLogs[5], CurTime());
 		WriteLog();
 		hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+		UCHAR BOM[] = { 0xFF,0xFE };
 		TCHAR szString1[] = TEXT("# Config\n\n");
 		TCHAR szString2[] = TEXT("CopyUDisk=\"\"\n\n");
+		WriteFile(hConfigfile, BOM, 2, &dwTmpNULL, NULL);
 		WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(TCHAR), &dwTmpNULL, NULL);
 		WriteFile(hConfigfile, szString2, sizeof(szString2) - sizeof(TCHAR), &dwTmpNULL, NULL);
 	}
 	else {
 		TCHAR line[512] = TEXT("");
 		DWORD fSize = GetFileSize(hConfigfile, NULL);
-		LPWSTR pFileContent = new TCHAR[(long long)fSize / 2 + 1];
+		LPTSTR pFileContent = new TCHAR[(long long)fSize / 2 + 1];
+		ReadFile(hConfigfile, pFileContent, 2, &dwTmpNULL, NULL);
 		RtlZeroMemory(pFileContent, fSize + sizeof(TCHAR));
 		if (!ReadFile(hConfigfile, pFileContent, fSize, &dwTmpNULL, NULL))
 			return;
@@ -155,7 +158,7 @@ inline void ReadConfig() {
 				if (line[len - 1] == TEXT(']')) line[--len] = TEXT('\0');
 				DRIVE* nDrive = new DRIVE;
 				nDrive->pnext = driveHead.pnext;
-				nDrive->uuid = _wtoi(line + 1);
+				nDrive->uuid = _ttoi(line + 1);
 				driveHead.pnext = nDrive;
 				continue;
 			}
