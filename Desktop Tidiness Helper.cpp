@@ -22,7 +22,7 @@ TCHAR szWindowClass[] = TEXT("My Window Class");     // The main window class na
 TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created, 11: Move Pending}
 	TEXT("\n[%ws] Program Start\n"),
 	TEXT("[%ws] Config Loaded\n"),
-	TEXT("[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\"\n"),
+	TEXT("[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\", VolumeUuid=%d\n"),
 	TEXT("[%ws] Device Ejected, VolumeLetter=\"%ws\"\n"),
 	TEXT("[%ws] Error encontered when moving file \"%ws\": %ws"),
 	TEXT("[%ws] Config Created\n"),
@@ -87,22 +87,31 @@ inline void MoveQueue() {
 	DWORD fSize = GetFileSize(hQueuefile, NULL);
 	DWORD count = fSize / MAX_PATH / sizeof(TCHAR) / 2;
 	TCHAR szFileName[MAX_PATH] = TEXT("");
+	TCHAR szOriginalMovedName[MAX_PATH] = TEXT("");
 	TCHAR szMovedName[MAX_PATH] = TEXT("");
 	for (DWORD i = 0; i < count; i++)
 	{
 		if (!ReadFile(hQueuefile, szFileName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL)) break;
+		if (!ReadFile(hQueuefile, szOriginalMovedName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL)) break;
 		if (!ReadFile(hQueuefile, szMovedName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL)) break;
-		if (!MoveFile(szFileName, szMovedName)) {
-			DWORD Err = GetLastError();
-			TCHAR szErrorMsg[128] = TEXT("");
-			// Log Error
-			FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
-			wsprintf(szLogBuffer, szgLogs[4], CurTime(), szFileName, szErrorMsg);
-			WriteLog();
+		if (!MoveFile(szFileName, szOriginalMovedName)) {
+			if (!MoveFile(szFileName, szMovedName)) {
+				DWORD Err = GetLastError();
+				TCHAR szErrorMsg[128] = TEXT("");
+				// Log Error
+				FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
+				wsprintf(szLogBuffer, szgLogs[4], CurTime(), szFileName, szErrorMsg);
+				WriteLog();
+			}
+			else {
+				//Log file move complete
+				wsprintf(szLogBuffer, szgLogs[6], CurTime(), szFileName, szMovedName);
+				WriteLog();
+			}
 		}
 		else {
 			//Log file move complete
-			wsprintf(szLogBuffer, szgLogs[6], CurTime(), szFileName, szMovedName);
+			wsprintf(szLogBuffer, szgLogs[6], CurTime(), szFileName, szOriginalMovedName);
 			WriteLog();
 		}
 	}
@@ -259,12 +268,14 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
 					p = p->pnext;
 				}
 				if (!p) continue;
-				TCHAR szMovedName[MAX_PATH], szOriginalName[MAX_PATH];
+				TCHAR szMovedName[MAX_PATH], szOriginalMovedName[MAX_PATH], szOriginalName[MAX_PATH];
 				wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL) , pFileNotifyInfo->FileName);
+				wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
 				wsprintf(szOriginalName, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
 				wsprintf(szLogBuffer, szgLogs[11], CurTime(), szOriginalName, szMovedName);
 				WriteLog();
 				WriteFile(hQueuefile, szOriginalName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
+				WriteFile(hQueuefile, szOriginalMovedName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
 				WriteFile(hQueuefile, szMovedName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
 				FlushFileBuffers(hQueuefile);
 			} while (pFileNotifyInfo->NextEntryOffset);
@@ -519,7 +530,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				GetVolumeInformation(volumeLetter, volumeName, MAX_PATH, &serialNumber, NULL, NULL, NULL, 0);
 
 				// Log drive arrival
-				wsprintf(szLogBuffer, szgLogs[2], CurTime(), volumeName, volumeLetter);
+				wsprintf(szLogBuffer, szgLogs[2], CurTime(), volumeName, volumeLetter, serialNumber);
 				WriteLog();
 
 				if (bPaused) break;
