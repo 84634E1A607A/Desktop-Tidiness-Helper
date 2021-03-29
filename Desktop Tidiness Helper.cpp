@@ -2,13 +2,7 @@
 
 #include "framework.h"
 #include "resource.h"
-#include <stdio.h>
-#include <Dbt.h>
-#include <ShlObj.h>
-#include <shellapi.h>
-#include <time.h>
-#include <vector>
-#include <algorithm>
+#include "Desktop Tidiness Helper.h"
 
 #define UM_TRAYICON (WM_USER + 1)
 
@@ -22,7 +16,7 @@ TCHAR szWindowClass[] = TEXT("My Window Class");     // The main window class na
 TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created, 11: Move Pending}
 	TEXT("\n[%ws] Program Start\n"),
 	TEXT("[%ws] Config Loaded\n"),
-	TEXT("[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\", VolumeUuid=%d\n"),
+	TEXT("[%ws] Device Inserted, VolumeName=\"%ws\", VolumeLetter=\"%ws\", VolumeSerial=%d\n"),
 	TEXT("[%ws] Device Ejected, VolumeLetter=\"%ws\"\n"),
 	TEXT("[%ws] Error encontered when moving file \"%ws\": %ws"),
 	TEXT("[%ws] Config Created\n"),
@@ -39,33 +33,6 @@ HANDLE hConfigfile, hQueuefile, hLogfile;
 NOTIFYICONDATA NotifyIconData;
 bool bPaused, bCopyUDisk;
 HMENU hMenu;
-
-// Structs
-struct FILEINFO {
-	TCHAR name[MAX_PATH] = TEXT("");
-	DWORD size = 0;
-	FILEINFO(LPWSTR n, DWORD s) { lstrcpy(name, n); size = s; }
-	FILEINFO() {}
-	bool operator< (const FILEINFO r) const {
-		return lstrcmp(this->name, r.name) < 0;
-	}
-	bool operator== (const FILEINFO r) const {
-		return !lstrcmp(this->name, r.name) && this->size == r.size;
-	}
-};
-
-struct DRIVE {
-	DWORD uuid = 0;
-	TCHAR path[MAX_PATH] = TEXT("");
-	TCHAR letter[3] = TEXT("");
-	vector<FILEINFO> files;
-	DRIVE* pnext = NULL;
-} driveHead;
-
-struct EXEMPT {
-	TCHAR name[MAX_PATH] = TEXT("");
-	EXEMPT* pnext = NULL;
-} exemptHead;
 
 
 inline void WriteLog() {
@@ -136,8 +103,7 @@ inline void ReadConfig() {
 		hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 		UCHAR BOM[] = { 0xFF,0xFE };
 		TCHAR szString1[] = TEXT("# Config\n\n");
-		TCHAR szString2[] = TEXT("CopyUDisk=\"\"\n\n");
-		WriteFile(hConfigfile, BOM, 2, &dwTmpNULL, NULL);
+		TCHAR szString2[] = TEXT("CopyUDisk=false\n\n");
 		WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(TCHAR), &dwTmpNULL, NULL);
 		WriteFile(hConfigfile, szString2, sizeof(szString2) - sizeof(TCHAR), &dwTmpNULL, NULL);
 	}
@@ -371,6 +337,11 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	// Init Menu
 	hMenu = LoadMenu(hInstance, MAKEINTRESOURCE(IDR_MENU1));
 
+	// Initial Scan
+	for (int i = 3; i < 26; i++) {
+		DeviceArrivalHandler(i);
+	}
+
 	return TRUE;
 }
 
@@ -504,6 +475,46 @@ DWORD WINAPI CopyUDisk(LPVOID pDrive)
 	return 0;
 }
 
+void DeviceArrivalHandler(int volumeIndex) {
+	TCHAR volumeLetter[] = TEXT("C:");
+	volumeLetter[0] = volumeIndex + TEXT('A');
+	TCHAR volumeName[MAX_PATH] = TEXT("");
+	DWORD serialNumber = 0, fileSystemFlags = 0;
+
+	if (GetDriveType(volumeLetter) != DRIVE_REMOVABLE) return;
+	GetVolumeInformation(volumeLetter, volumeName, MAX_PATH, &serialNumber, NULL, &fileSystemFlags, NULL, 0);
+
+	// Log drive arrival
+	wsprintf(szLogBuffer, szgLogs[2], CurTime(), volumeName, volumeLetter, serialNumber);
+	WriteLog();
+
+	if (bPaused) return;
+	if (serialNumber == 0) return;
+
+	DRIVE* p = driveHead.pnext;
+	while (p && p->uuid != serialNumber) p = p->pnext;
+	if (!p) {
+		TCHAR szString1[MAX_PATH] = TEXT("");
+		wsprintf(szString1, TEXT("\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n"), serialNumber, volumeName);
+		WriteFile(hConfigfile, szString1, lstrlen(szString1) * sizeof(TCHAR), &dwTmpNULL, NULL);
+		FlushFileBuffers(hConfigfile);
+		DRIVE* nDrive = new DRIVE;
+		nDrive->pnext = driveHead.pnext;
+		nDrive->uuid = serialNumber;
+		//lstrcpy(nDrive->letter, volumeLetter);
+		driveHead.pnext = nDrive;
+	}
+	else {
+		if (p->path[0] == TEXT('\0')) return;
+		lstrcpy(p->letter, volumeLetter);
+		CreateThread(NULL, 0, Indexer, p, 0, NULL);
+	}
+
+	if (bCopyUDisk) {
+		CreateThread(NULL, 0, CopyUDisk, p, 0, NULL);
+	}
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
@@ -524,39 +535,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			DWORD unitmask = lpdbv->dbcv_unitmask;
 			for (char i = 0; i < 26; ++i, unitmask >>= 1) {
 				if (!(unitmask & 0x1)) continue;
-				volumeLetter[0] = i + TEXT('A');
-				TCHAR volumeName[MAX_PATH] = TEXT("");
-				DWORD serialNumber = 0;
-				GetVolumeInformation(volumeLetter, volumeName, MAX_PATH, &serialNumber, NULL, NULL, NULL, 0);
-
-				// Log drive arrival
-				wsprintf(szLogBuffer, szgLogs[2], CurTime(), volumeName, volumeLetter, serialNumber);
-				WriteLog();
-
-				if (bPaused) break;
-
-				DRIVE* p = driveHead.pnext;
-				while (p && p->uuid != serialNumber) p = p->pnext;
-				if (!p) {
-					TCHAR szString1[MAX_PATH] = TEXT("");
-					wsprintf(szString1, TEXT("\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n"), serialNumber, volumeName);
-					WriteFile(hConfigfile, szString1, lstrlen(szString1) * sizeof(TCHAR), &dwTmpNULL, NULL);
-					FlushFileBuffers(hConfigfile);
-					DRIVE* nDrive = new DRIVE;
-					nDrive->pnext = driveHead.pnext;
-					nDrive->uuid = serialNumber;
-					//lstrcpy(nDrive->letter, volumeLetter);
-					driveHead.pnext = nDrive;
-				}
-				else {
-					if (p->path[0] == TEXT('\0')) continue;
-					lstrcpy(p->letter, volumeLetter);
-					CreateThread(NULL, 0, Indexer, p, 0, NULL);
-					if (bCopyUDisk)
-					{
-						CreateThread(NULL, 0, CopyUDisk, p, 0, NULL);
-					}
-				}
+				DeviceArrivalHandler(i);
 			}
 			break;
 		}
