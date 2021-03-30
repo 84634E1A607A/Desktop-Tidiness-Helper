@@ -113,7 +113,8 @@ inline void ReadConfig() {
 		TCHAR line[512] = TEXT("");
 		DWORD fSize = GetFileSize(hConfigfile, NULL);
 		LPTSTR pFileContent = new TCHAR[(long long)fSize / 2 + 1];
-		if (ReadFile(hConfigfile, pFileContent, 2, &dwTmpNULL, NULL)) {} // avoid warning
+		if (!ReadFile(hConfigfile, pFileContent, 2, &dwTmpNULL, NULL))
+			return;
 		RtlZeroMemory(pFileContent, fSize + sizeof(TCHAR));
 		if (!ReadFile(hConfigfile, pFileContent, fSize, &dwTmpNULL, NULL))
 			return;
@@ -230,8 +231,14 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
 				TCHAR fname[MAX_PATH];
 				wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
 				WIN32_FIND_DATAW fdata = {};
+				int i = 0;
 				while (!fdata.nFileSizeLow && !(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) 
-				{ FindClose(FindFirstFile(fname, &fdata)); Sleep(20); }
+				{
+					FindClose(FindFirstFile(fname, &fdata));
+					Sleep(20);
+					i++;
+					if (i == 100) break;
+				}
 				FILEINFO fInfo = { fdata.cFileName, fdata.nFileSizeLow };
 				DRIVE* p = driveHead.pnext;
 				while (p) {
@@ -239,13 +246,24 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
 					if (pos != p->files.end()) break;
 					p = p->pnext;
 				}
-				if (!p) continue;
 				TCHAR szMovedName[MAX_PATH], szOriginalMovedName[MAX_PATH], szOriginalName[MAX_PATH];
-				wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL) , pFileNotifyInfo->FileName);
-				if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-					wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
+				if (!p)
+				{
+					if (szDefaultMovePath[0] == TEXT('0')) continue;
+					wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, szDefaultMovePath, (int)time(NULL), pFileNotifyInfo->FileName);
+					if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, szDefaultMovePath, (int)time(NULL), pFileNotifyInfo->FileName);
+					else
+						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, szDefaultMovePath, pFileNotifyInfo->FileName);
+				}
 				else
-					wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
+				{
+					wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
+					if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
+					else
+						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
+				}
 				wsprintf(szOriginalName, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
 				wsprintf(szLogBuffer, szgLogs[11], CurTime(), szOriginalName, szMovedName);
 				WriteLog();
@@ -366,7 +384,7 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir, bool docopy, DRIVE* pDrive) {
 	TCHAR szFindCommand[MAX_PATH];
 	wsprintf(szFindCommand, TEXT("%ws\\*"), dir);
 	HANDLE hFind = FindFirstFileW(szFindCommand, &findData);
-	if (hFind == INVALID_HANDLE_VALUE) return fInfo;
+	if (hFind == INVALID_HANDLE_VALUE) return std::move(fInfo);
 	do {
 		if (!lstrcmp(findData.cFileName, TEXT(".")) || !lstrcmp(findData.cFileName, TEXT(".."))) continue;
 		if (docopy)
@@ -420,7 +438,7 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir, bool docopy, DRIVE* pDrive) {
 		}
 	} while (FindNextFileW(hFind, &findData));
 	FindClose(hFind);
-	return fInfo;
+	return std::move(fInfo);
 }
 
 DWORD WINAPI Indexer(LPVOID lpParameter) {
@@ -512,10 +530,6 @@ void DeviceArrivalHandler(int volumeIndex) {
 		nDrive->uuid = serialNumber;
 		//lstrcpy(nDrive->letter, volumeLetter);
 		driveHead.pnext = nDrive;
-		if (szDefaultMovePath[0] == TEXT('\0')) return;
-		lstrcpy(nDrive->letter, volumeLetter);
-		lstrcpy(nDrive->path, szDefaultMovePath);
-		CreateThread(NULL, 0, Indexer, nDrive, 0, NULL);
 	}
 	else {
 		if (p->path[0] == TEXT('\0')) return;
