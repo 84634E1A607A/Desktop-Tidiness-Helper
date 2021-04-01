@@ -227,7 +227,11 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
 				RtlZeroMemory(pFileNotifyInfo, 1024);
 				memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? static_cast<size_t>(pFirstFileNotifyInfo->NextEntryOffset) - 1 : 1024);
 				pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
+				
+				// Exempts:
 				if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
+				if (pFileNotifyInfo->FileName[0] == '~' && pFileNotifyInfo->FileName[1] == '$') continue;
+				
 				TCHAR fname[MAX_PATH];
 				wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
 				WIN32_FIND_DATAW fdata = {};
