@@ -378,7 +378,7 @@ void ExitInstance() {
 	Shell_NotifyIcon(NIM_DELETE, &NotifyIconData);
 }
 
-vector<FILEINFO> IndexerWorker(LPWSTR dir, bool docopy, DRIVE* pDrive) {
+vector<FILEINFO> IndexerWorker(LPWSTR dir, DRIVE* pDrive) {
 	vector<FILEINFO> fInfo;
 	WIN32_FIND_DATAW findData = {};
 	TCHAR szFindCommand[MAX_PATH];
@@ -387,54 +387,12 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir, bool docopy, DRIVE* pDrive) {
 	if (hFind == INVALID_HANDLE_VALUE) return std::move(fInfo);
 	do {
 		if (!lstrcmp(findData.cFileName, TEXT(".")) || !lstrcmp(findData.cFileName, TEXT(".."))) continue;
-		if (docopy)
-		{
-			TCHAR copyname[MAX_PATH], tmp[MAX_PATH], srcname[MAX_PATH];
-			wsprintf(tmp, TEXT("%ws\\%ws"), dir, findData.cFileName);
-			int i1, i2;
-			wsprintf(copyname, TEXT("%ws\\%ws\\%d\\"), szDesktopPath, pDrive->path, pDrive->uuid);
-			i1 = static_cast<int>(wcslen(copyname));
-			for (i2 = 0; tmp[i2] != TEXT('\0') && tmp[i2] != TEXT('\\'); i2++);
-			if (tmp[i2] == TEXT('\\'))
-			{
-				i2++;
-			}
-			while (true)
-			{
-				if (i1 == MAX_PATH)
-				{
-					copyname[i1 - 1] = TEXT('\0');
-					break;
-				}
-				copyname[i1] = tmp[i2];
-				if (tmp[i2] == TEXT('\0')) break;
-				i1++;
-				i2++;
-			}
-			if (i1 < MAX_PATH)
-			{
-				copyname[i1] = TEXT('\0');
-			}
-			wsprintf(srcname, TEXT("%ws\\%ws\0"), dir, findData.cFileName);
-			CopyFile(srcname, copyname, TRUE);// I don't know why SHFileOperation will regard all files as directories without this line
-			SHFILEOPSTRUCT fo;
-			fo.hwnd = NULL;
-			fo.fAnyOperationsAborted = FALSE;
-			//fo.fFlags = FOF_NO_UI;
-			fo.hNameMappings = NULL;
-			fo.wFunc = FO_COPY;
-			fo.pFrom = srcname;
-			fo.pTo = copyname;
-			SHFileOperation(&fo);
-		}
-		else
-			fInfo.push_back({ findData.cFileName, findData.nFileSizeLow });
+		fInfo.push_back({ findData.cFileName, findData.nFileSizeLow });
 		if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
 			TCHAR dfs[MAX_PATH];
 			wsprintf(dfs, TEXT("%ws\\%ws"), dir, findData.cFileName);
-			vector<FILEINFO> ret = IndexerWorker(dfs, docopy, pDrive);
-			if(!docopy)
-				fInfo.insert(fInfo.end(), ret.begin(), ret.end());
+			vector<FILEINFO> ret = IndexerWorker(dfs, pDrive);
+			fInfo.insert(fInfo.end(), ret.begin(), ret.end());
 		}
 	} while (FindNextFileW(hFind, &findData));
 	FindClose(hFind);
@@ -443,7 +401,7 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir, bool docopy, DRIVE* pDrive) {
 
 DWORD WINAPI Indexer(LPVOID lpParameter) {
 	DRIVE* d = (DRIVE*)lpParameter;
-	vector<FILEINFO> fInfo = IndexerWorker(d->letter, false, d);
+	vector<FILEINFO> fInfo = IndexerWorker(d->letter, d);
 	sort(fInfo.begin(), fInfo.end());
 	d->files = std::move(fInfo);
 	/*d->files.clear();
@@ -498,7 +456,17 @@ DWORD WINAPI ConfigEditHandler(LPVOID lpParameter) {
 DWORD WINAPI CopyUDisk(LPVOID pDrive)
 {
 	DRIVE* _pDrive = (DRIVE*)pDrive;
-	IndexerWorker(_pDrive->letter, true, _pDrive);
+	TCHAR szDir[MAX_PATH];
+	wsprintf(szDir, TEXT("%ws\\%ws\\%d"), szDesktopPath, _pDrive->path, _pDrive->uuid);
+	SHFILEOPSTRUCT fo;
+	fo.hwnd = NULL;
+	fo.fAnyOperationsAborted = FALSE;
+	fo.fFlags = FOF_NO_UI; // or it will create popup windows
+	fo.hNameMappings = NULL;
+	fo.wFunc = FO_COPY;
+	fo.pFrom = _pDrive->letter;
+	fo.pTo = szDir;
+	SHFileOperation(&fo);
 	return 0;
 }
 
@@ -538,6 +506,7 @@ void DeviceArrivalHandler(int volumeIndex) {
 	}
 
 	if (bCopyUDisk) {
+		Sleep(1000);
 		CreateThread(NULL, 0, CopyUDisk, p, 0, NULL);
 	}
 }
