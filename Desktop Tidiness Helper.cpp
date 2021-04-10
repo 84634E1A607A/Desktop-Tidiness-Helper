@@ -11,6 +11,7 @@ using namespace std;
 // Global Variables:
 DWORD dwTmpNULL;
 HINSTANCE hInst;                                // Current instance
+HWND hThisWnd;
 TCHAR szTitle[] = TEXT("DTH");                       // The title bar text
 TCHAR szWindowClass[] = TEXT("My Window Class");     // The main window class name
 TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: Device Arrival, 3: Device Removal, 4: Err fMoving, 5: Cfg Created, 6: Complete fMoving, 7: Err tMonitor, 8: Cfg Chg, 9: Cfg Reload, 10: Log Created, 11: Move Pending}
@@ -228,18 +229,19 @@ DWORD WINAPI Monitor(LPVOID lpParameter) {
 				memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? static_cast<size_t>(pFirstFileNotifyInfo->NextEntryOffset) - 1 : 1024);
 				pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
 				if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
-				TCHAR fname[MAX_PATH];
+				TCHAR fname[MAX_PATH], szFullName[MAX_PATH];
 				wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
 				WIN32_FIND_DATAW fdata = {};
 				int i = 0;
-				while (!fdata.nFileSizeLow && !(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) 
+				while (!fdata.nFileSizeLow && !(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 				{
 					FindClose(FindFirstFile(fname, &fdata));
 					Sleep(20);
 					i++;
 					if (i == 100) break;
 				}
-				FILEINFO fInfo = { fdata.cFileName, fdata.nFileSizeLow };
+				wsprintf(szFullName, TEXT("%ws\\%ws"), szDesktopPath, fdata.cFileName);
+				FILEINFO fInfo = { szFullName, fdata.nFileSizeLow };
 				DRIVE* p = driveHead.pnext;
 				while (p) {
 					auto pos = find(p->files.begin(), p->files.end(), fInfo);
@@ -291,6 +293,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	{
 		return FALSE;
 	}
+	hThisWnd = hWnd;
+
 	lstrcpy(szHomePath, _wgetenv(TEXT("appdata")));
 	lstrcat(szHomePath, TEXT("\\..\\Local\\Desktop Tidiness Helper"));
 
@@ -381,13 +385,14 @@ void ExitInstance() {
 vector<FILEINFO> IndexerWorker(LPWSTR dir, DRIVE* pDrive) {
 	vector<FILEINFO> fInfo;
 	WIN32_FIND_DATAW findData = {};
-	TCHAR szFindCommand[MAX_PATH];
+	TCHAR szFindCommand[MAX_PATH], szFullName[MAX_PATH];
 	wsprintf(szFindCommand, TEXT("%ws\\*"), dir);
 	HANDLE hFind = FindFirstFileW(szFindCommand, &findData);
 	if (hFind == INVALID_HANDLE_VALUE) return std::move(fInfo);
 	do {
 		if (!lstrcmp(findData.cFileName, TEXT(".")) || !lstrcmp(findData.cFileName, TEXT(".."))) continue;
-		fInfo.push_back({ findData.cFileName, findData.nFileSizeLow });
+		wsprintf(szFullName, TEXT("%ws\\%ws"), dir, findData.cFileName);
+		fInfo.push_back({ szFullName, findData.nFileSizeLow });
 		if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
 			TCHAR dfs[MAX_PATH];
 			wsprintf(dfs, TEXT("%ws\\%ws"), dir, findData.cFileName);
@@ -401,9 +406,8 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir, DRIVE* pDrive) {
 
 DWORD WINAPI Indexer(LPVOID lpParameter) {
 	DRIVE* d = (DRIVE*)lpParameter;
-	vector<FILEINFO> fInfo = IndexerWorker(d->letter, d);
-	sort(fInfo.begin(), fInfo.end());
-	d->files = std::move(fInfo);
+	d->files = IndexerWorker(d->letter, d);
+	sort(d->files.begin(), d->files.end());
 	/*d->files.clear();
 	d->files.insert(d->files.end(), fInfo.begin(), fInfo.end());*/
 	return 0;
@@ -496,72 +500,342 @@ void DeviceArrivalHandler(int volumeIndex) {
 		DRIVE* nDrive = new DRIVE;
 		nDrive->pnext = driveHead.pnext;
 		nDrive->uuid = serialNumber;
+		nDrive->isavailable = true;
 		//lstrcpy(nDrive->letter, volumeLetter);
 		driveHead.pnext = nDrive;
 	}
 	else {
-		if (p->path[0] == TEXT('\0')) return;
+		//if (p->path[0] == TEXT('\0')) return;
+		p->isavailable = true;
 		lstrcpy(p->letter, volumeLetter);
 		CreateThread(NULL, 0, Indexer, p, 0, NULL);
 	}
 
-	if (bCopyUDisk) {
+	if (bCopyUDisk) 
+	{
+		//if (p->path[0] == TEXT('\0')) return;
 		Sleep(1000);
 		CreateThread(NULL, 0, CopyUDisk, p, 0, NULL);
 	}
+}
+
+DWORD WINAPI FindFileDlg(LPVOID unused)
+{
+	DialogBox(hInst, MAKEINTRESOURCE(IDD_FINDDIALOG), hThisWnd, FindDlgProc);
+	return 0;
+}
+
+INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	switch (message)
+	{
+	case WM_INITDIALOG:
+	{
+		break;
+	}
+	case WM_DEVICECHANGE:
+	{
+		Sleep(2000);
+
+		break;
+	}
+	case WM_COMMAND:
+	{
+		switch (LOWORD(wParam))
+		{
+		case IDC_FIND:
+		{
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_RESETCONTENT, 0, 0);
+
+			HDC hdc = GetDC(GetDlgItem(hDialog, IDC_FILELIST));
+			RECT rc;
+			GetWindowRect(GetDlgItem(hDialog, IDC_FILELIST), &rc);
+			SIZE size;
+			int maxwidth = rc.right - rc.left;
+
+			TCHAR szFindName[MAX_PATH];
+			GetDlgItemText(hDialog, IDC_FINDEDIT, szFindName, MAX_PATH - 1);
+			if (szFindName[0] == TEXT('\0')) break;
+			auto results = FindInUDisk(szFindName);
+			for (auto& result : results)
+			{
+				SendDlgItemMessage(hDialog, IDC_FILELIST, LB_ADDSTRING, 0, (LPARAM)result.c_str());
+				GetTextExtentPoint(hdc, result.c_str(), static_cast<int>(result.size() + 1), &size);
+				if (size.cx > maxwidth) maxwidth = size.cx;
+			}
+			maxwidth -= 320; // maybe OK
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_SETHORIZONTALEXTENT, static_cast<WPARAM>(maxwidth), 0);
+			break;
+		}
+		case IDC_FILELIST:
+		{
+			switch (HIWORD(wParam))
+			{
+			case LBN_DBLCLK:
+			{
+				TCHAR szFileName[MAX_PATH], szCmdLine[MAX_PATH];
+				GetDlgItemText(hDialog, IDC_CMDEDIT, szCmdLine, MAX_PATH - 1);
+				LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+				SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+				OpenIn(szFileName, szCmdLine);
+				break;
+			}
+			case LBN_SELCHANGE:
+			{
+				TCHAR szFileName[MAX_PATH], szFileInfo[MAX_PATH * 2];
+				LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+				SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+				GetFileInfo(szFileName, szFileInfo);
+				SetDlgItemText(hDialog, IDC_FILEINFO, szFileInfo);
+				break;
+			}
+			default:
+				break;
+			}
+			break;
+		}
+		case IDC_OPEN:
+		{
+			TCHAR szFileName[MAX_PATH],szCmdLine[MAX_PATH];
+			GetDlgItemText(hDialog, IDC_CMDEDIT, szCmdLine, MAX_PATH - 1);
+			LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+			OpenIn(szFileName, szCmdLine);
+			break;
+		}
+		case IDC_OINE:
+		{
+			TCHAR szFileName[MAX_PATH], szCmdLine[MAX_PATH];
+			LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+			wsprintf(szCmdLine, TEXT("/select ,%ws"), szFileName);
+			OpenIn(TEXT("explorer.exe"), szCmdLine);
+			break;
+		}
+		case IDC_OINP:
+		{
+			TCHAR szFileName[MAX_PATH], szCmdLine[MAX_PATH], szCmdFinal[MAX_PATH];
+			GetDlgItemText(hDialog, IDC_CMDEDIT, szCmdLine, MAX_PATH - 1);
+			LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+			wsprintf(szCmdFinal, TEXT("%ws %ws"), szFileName, szCmdLine);
+			OpenIn(TEXT("powershell.exe"), szCmdFinal);
+			break;
+		}
+		case IDC_COPYPATH:
+		{
+			TCHAR szFileName[MAX_PATH];
+			LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+			CopyToClipBoard(szFileName);
+			break;
+		}
+		case IDC_EXIT:
+		{
+			EndDialog(hDialog, LOWORD(wParam));
+			return INT_PTR(TRUE);
+		}
+		default:
+			break;
+		}
+		break;
+	}
+	case WM_CLOSE:
+	{
+		EndDialog(hDialog, LOWORD(wParam));
+		return INT_PTR(TRUE);
+	}
+	default:
+		break;
+	}
+	return 0;
+}
+
+vector<wstring> FindInUDisk(LPCTSTR fname)
+{
+	DWORD dwDrives = GetLogicalDrives();
+	TCHAR volumeLetter[3] = TEXT("A:");
+	vector<DWORD> uuids;
+	vector<wstring> files;
+	for (char i = 0; i < 26; ++i,dwDrives >>= 1)
+	{
+		if (!(dwDrives & 0x1)) continue;
+		volumeLetter[0] = i + TEXT('A');
+		if (GetDriveType(volumeLetter) != DRIVE_REMOVABLE) continue;
+		TCHAR volumeName[MAX_PATH] = TEXT("");
+		DWORD serialNumber = 0, fileSystemFlags = 0;
+		GetVolumeInformation(volumeLetter, volumeName, MAX_PATH, &serialNumber, NULL, &fileSystemFlags, NULL, 0);
+		uuids.push_back(serialNumber);
+	}
+	DRIVE* p = driveHead.pnext;
+	while (p)
+	{
+		if (!p->isavailable || find(uuids.begin(), uuids.end(), p->uuid) == uuids.end())
+		{
+			p = p->pnext;
+			continue;
+		}
+		for (auto& file : p->files)
+		{
+			int head = 3, tail = 3; // skip drive letter
+			size_t ssize = lstrlen(file.fullpath), fssize = lstrlen(fname);
+			while (tail < ssize)
+			{
+				while (file.fullpath[tail] != TEXT('\\') && tail < ssize)
+				{
+					tail++;
+				}
+				int cur = 0;
+				bool flag = false;
+				while (head < tail)
+				{
+					if (fname[cur] == file.fullpath[head]
+						|| (fname[cur] >= TEXT('A') && fname[cur] <= TEXT('Z') && fname[cur] - TEXT('A') == file.fullpath[head] - TEXT('a'))
+						|| (fname[cur] >= TEXT('a') && fname[cur] <= TEXT('z') && fname[cur] - TEXT('a') == file.fullpath[head] - TEXT('A'))
+						)
+					{
+						flag = true;
+						cur++;
+						if (cur >= fssize) //succeeded
+						{
+							TCHAR tmp = file.fullpath[tail];
+							file.fullpath[tail] = TEXT('\0');
+							files.push_back(file.fullpath);
+							file.fullpath[tail] = tmp;
+							break;
+						}
+					}
+					else 
+					{
+						flag = false;
+						cur = 0;
+					}
+					head++;
+				}
+				head = tail + 1;
+				tail++;
+			}
+		}
+		p = p->pnext;
+	}
+	set<wstring> s(files.begin(), files.end());
+	files.assign(s.begin(), s.end());
+	return std::move(files);
+}
+
+void CopyToClipBoard(LPCTSTR fname)
+{
+	HGLOBAL hGlobal = GlobalAlloc(GHND, (lstrlen(fname) + static_cast<size_t>(1)) * sizeof(TCHAR));
+	if (hGlobal == INVALID_HANDLE_VALUE || hGlobal == 0) return;
+	TCHAR* pGlobal = (TCHAR*)GlobalLock(hGlobal);
+	if (pGlobal != 0)
+	{
+		lstrcpy(pGlobal, fname);
+		GlobalUnlock(hGlobal);
+
+		OpenClipboard(NULL);
+		EmptyClipboard();
+		SetClipboardData(CF_UNICODETEXT, hGlobal);
+		CloseClipboard();
+	}
+}
+
+void OpenIn(LPCTSTR exename, LPCTSTR cmdline)
+{
+	ShellExecute(NULL, TEXT("open"), exename, cmdline, TEXT(""), SW_SHOWNORMAL);
+}
+
+void GetFileInfo(LPCTSTR fname, LPTSTR info)
+{
+	WIN32_FILE_ATTRIBUTE_DATA fAttrData;
+	FILETIME fCreationTime,fLastAccessTime,fLastWriteTime;
+	SYSTEMTIME CreationTime, LastAccessTime, LastWriteTime;
+	GetFileAttributesEx(fname, GetFileExInfoStandard, &fAttrData);
+	FileTimeToLocalFileTime(&fAttrData.ftCreationTime, &fCreationTime);
+	FileTimeToSystemTime(&fCreationTime, &CreationTime);
+	FileTimeToLocalFileTime(&fAttrData.ftLastAccessTime, &fLastAccessTime);
+	FileTimeToSystemTime(&fLastAccessTime, &LastAccessTime);
+	FileTimeToLocalFileTime(&fAttrData.ftLastWriteTime, &fLastWriteTime);
+	FileTimeToSystemTime(&fLastWriteTime, &LastWriteTime);
+	wsprintf(info,
+		TEXT("%ws [%ws]\nSize: %d Bytes\nCreation Time: %d/%02d/%02d %02d:%02d:%02d\nLast Access Time: %d/%02d/%02d %02d:%02d:%02d\nLast Write Time: %d/%02d/%02d %02d:%02d:%02d"),
+		fname,
+		(fAttrData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? TEXT("DIR") : TEXT("FILE"),
+		(fAttrData.nFileSizeHigh << 16) + fAttrData.nFileSizeLow,
+		CreationTime.wYear, CreationTime.wMonth, CreationTime.wDay, CreationTime.wHour, CreationTime.wMinute, CreationTime.wSecond,
+		LastAccessTime.wYear, LastAccessTime.wMonth, LastAccessTime.wDay, LastAccessTime.wHour, LastAccessTime.wMinute, LastAccessTime.wSecond,
+		LastWriteTime.wYear, LastWriteTime.wMonth, LastWriteTime.wDay, LastWriteTime.wHour, LastWriteTime.wMinute, LastWriteTime.wSecond
+	);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
-	case WM_DESTROY: {
+	case WM_DESTROY: 
+	{
 		ExitInstance();
 		PostQuitMessage(0);
 		break;
 	}
-				   // Device Change
-	case WM_DEVICECHANGE: {
+	// Device Change
+	case WM_DEVICECHANGE: 
+	{
 		PDEV_BROADCAST_HDR lpdb = (PDEV_BROADCAST_HDR)lParam;
 		PDEV_BROADCAST_VOLUME lpdbv = (PDEV_BROADCAST_VOLUME)lpdb;
 		TCHAR volumeLetter[] = TEXT("C:");
 		switch (wParam)
 		{
-		case DBT_DEVICEARRIVAL: {
+		case DBT_DEVICEARRIVAL: 
+		{
 			DWORD unitmask = lpdbv->dbcv_unitmask;
-			for (char i = 0; i < 26; ++i, unitmask >>= 1) {
+			for (char i = 0; i < 26; ++i, unitmask >>= 1) 
+			{
 				if (!(unitmask & 0x1)) continue;
 				DeviceArrivalHandler(i);
 			}
 			break;
 		}
-		case DBT_DEVICEREMOVECOMPLETE: {
+		case DBT_DEVICEREMOVECOMPLETE: 
+		{
 			DWORD unitmask = lpdbv->dbcv_unitmask;
-			for (char i = 0; i < 26; ++i, unitmask >>= 1) {
+			for (char i = 0; i < 26; ++i, unitmask >>= 1) 
+			{
 				if (!(unitmask & 0x1)) continue;
 				volumeLetter[0] = i + TEXT('A');
-
+	
+				DRIVE* p = driveHead.pnext;
+				while (p && p->letter[0] != volumeLetter[0]) p = p->pnext;
+				if (p)
+				{
+					p->isavailable = false;
+				}
+				
 				// Log device removal
 				wsprintf(szLogBuffer, szgLogs[3], CurTime(), volumeLetter);
 				WriteLog();
 			}
 			break;
 		}
-		default: {
+		default: 
+		{
 			break;
 		}
 		}
 		break;
 	}
-				   // Tray Icon
-	case UM_TRAYICON: {
+	// Tray Icon
+	case UM_TRAYICON: 
+	{
 		if (bPaused) break;
 		static clock_t cl = 0;
 		clock_t cc = clock();
-		switch LOWORD(lParam) {
+		switch LOWORD(lParam) 
+		{
 		case NIN_SELECT:
 		case NIN_KEYSELECT:
-		case WM_CONTEXTMENU: {
+		case WM_CONTEXTMENU: 
+		{
 			POINT pt;
 			GetCursorPos(&pt);
 			SetForegroundWindow(hWnd);
@@ -591,11 +865,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			CreateThread(NULL, 0, ConfigEditHandler, hWnd, 0, NULL);
 			break;
 		}
+		case ID_X_FIND:
+		{
+			CreateThread(NULL, 0, FindFileDlg, hWnd, 0, NULL);
+			break;
+		}
 		default:
 			break;
 		}
 	}
-	default: {
+	default: 
+	{
 		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
 	}
