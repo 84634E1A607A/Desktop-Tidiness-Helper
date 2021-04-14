@@ -6,17 +6,29 @@
 struct FILEINFO 
 {
 	TCHAR fullpath[MAX_PATH];
-	LPTSTR name;
+	TCHAR name[MAX_PATH];
 	DWORD size = 0;
-	FILEINFO(LPWSTR p, DWORD s) :size(s) { lstrcpy(fullpath, p); initname(); }
-	FILEINFO() :fullpath(TEXT("")), name(fullpath) {}
+
+	FILEINFO(LPWSTR p, DWORD s) :size(s)
+	{ 
+		lstrcpy(fullpath, p);
+		initname(); 
+	}
+	FILEINFO() :fullpath(TEXT("")), name(TEXT("")), size(0){}
 	bool operator< (const FILEINFO r) const 
 	{
-		return name < r.name;
+		return lstrcmp(name, r.name) < 0;
 	}
 	bool operator== (const FILEINFO r) const
 	{
-		return name == r.name && size == r.size;
+		return (!lstrcmp(name, r.name)) && size == r.size;
+	}
+	FILEINFO operator=(const FILEINFO r)
+	{
+		lstrcpy(fullpath, r.fullpath);
+		initname();
+		size = r.size;
+		return *this;
 	}
 
 	void initname()
@@ -24,14 +36,14 @@ struct FILEINFO
 		int l = static_cast<int>(lstrlen(fullpath)), i;
 		if (l == 0)
 		{
-			name = &fullpath[0];
+			name[0] = TEXT('\0');
 			return;
 		}
 		for (i = l - 1; fullpath[i] != TEXT('\\'); i--)
 		{
 			if (i < 0) break;
 		}
-		name = &fullpath[i + 1];
+		lstrcpy(name, &fullpath[i + 1]);
 	}
 	void getdir(TCHAR* path) const
 	{
@@ -104,6 +116,8 @@ void DeviceArrivalHandler(int volumeIndex);
 DWORD WINAPI FindFileDlg(LPVOID unused);
 
 INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM lParam);
+
+vector<size_t> ProcessRegex(LPCTSTR regex, LPCTSTR target);
 
 vector<wstring> FindInUDisk(LPCTSTR fname);
 
