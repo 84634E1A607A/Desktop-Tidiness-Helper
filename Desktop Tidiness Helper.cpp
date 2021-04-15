@@ -733,42 +733,42 @@ vector<wstring> FindInUDisk(LPCTSTR fname)
 		{
 			int head = 3, tail = 3; // skip drive letter
 			size_t ssize = lstrlen(file.fullpath), fssize = lstrlen(fname);
-			while (tail < ssize)
+
+			int cur = 0;
+			bool flag = false;
+			while (head < ssize)
 			{
-				while (file.fullpath[tail] != TEXT('\\') && tail < ssize)
+				if (fname[cur] == file.fullpath[head]
+					|| (fname[cur] >= TEXT('A') && fname[cur] <= TEXT('Z') && fname[cur] - TEXT('A') == file.fullpath[head] - TEXT('a'))
+					|| (fname[cur] >= TEXT('a') && fname[cur] <= TEXT('z') && fname[cur] - TEXT('a') == file.fullpath[head] - TEXT('A'))
+					)
 				{
-					tail++;
+					flag = true;
+					cur++;
+					if (cur >= fssize) //succeeded
+					{
+						if (head == ssize)
+							tail = head;
+						else
+							tail = head + 1;
+						while (file.fullpath[tail] != TEXT('\\') && tail < ssize)
+							tail++;
+						TCHAR tmp = file.fullpath[tail];
+						file.fullpath[tail] = TEXT('\0');
+						files.push_back(file.fullpath);
+						file.fullpath[tail] = tmp;
+						break;
+					}
 				}
-				int cur = 0;
-				bool flag = false;
-				while (head < tail)
+				else
 				{
-					if (fname[cur] == file.fullpath[head]
-						|| (fname[cur] >= TEXT('A') && fname[cur] <= TEXT('Z') && fname[cur] - TEXT('A') == file.fullpath[head] - TEXT('a'))
-						|| (fname[cur] >= TEXT('a') && fname[cur] <= TEXT('z') && fname[cur] - TEXT('a') == file.fullpath[head] - TEXT('A'))
-						)
-					{
-						flag = true;
-						cur++;
-						if (cur >= fssize) //succeeded
-						{
-							TCHAR tmp = file.fullpath[tail];
-							file.fullpath[tail] = TEXT('\0');
-							files.push_back(file.fullpath);
-							file.fullpath[tail] = tmp;
-							break;
-						}
-					}
-					else 
-					{
-						flag = false;
-						cur = 0;
-					}
-					head++;
+					flag = false;
+					cur = 0;
 				}
-				head = tail + 1;
-				tail++;
+				head++;
 			}
+			head = tail + 1;
+
 		}
 		p = p->pnext;
 	}

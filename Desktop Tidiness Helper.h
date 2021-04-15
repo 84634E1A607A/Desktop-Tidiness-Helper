@@ -6,27 +6,32 @@
 struct FILEINFO 
 {
 	TCHAR fullpath[MAX_PATH];
-	TCHAR name[MAX_PATH];
+	int name_index;
 	DWORD size = 0;
+
+	inline const TCHAR* name() const
+	{
+		return &(fullpath[name_index]);
+	}
 
 	FILEINFO(LPWSTR p, DWORD s) :size(s)
 	{ 
 		lstrcpy(fullpath, p);
 		initname(); 
 	}
-	FILEINFO() :fullpath(TEXT("")), name(TEXT("")), size(0){}
+	FILEINFO() :fullpath(TEXT("")), name_index(0), size(0){}
 	bool operator< (const FILEINFO r) const 
 	{
-		return lstrcmp(name, r.name) < 0;
+		return lstrcmp(name(), r.name()) < 0;
 	}
 	bool operator== (const FILEINFO r) const
 	{
-		return (!lstrcmp(name, r.name)) && size == r.size;
+		return (!lstrcmp(name(), r.name())) && size == r.size;
 	}
 	FILEINFO operator=(const FILEINFO r)
 	{
 		lstrcpy(fullpath, r.fullpath);
-		initname();
+		name_index = r.name_index;
 		size = r.size;
 		return *this;
 	}
@@ -36,14 +41,14 @@ struct FILEINFO
 		int l = static_cast<int>(lstrlen(fullpath)), i;
 		if (l == 0)
 		{
-			name[0] = TEXT('\0');
+			name_index = 0;
 			return;
 		}
 		for (i = l - 1; fullpath[i] != TEXT('\\'); i--)
 		{
 			if (i < 0) break;
 		}
-		lstrcpy(name, &fullpath[i + 1]);
+		name_index = i + 1;
 	}
 	void getdir(TCHAR* path) const
 	{
