@@ -105,6 +105,34 @@ inline void trim(LPTSTR str)
 	for (int i = 0; i <= len; i++) str[i] = str[ps + i];
 }
 
+bool CheckSingleInstance()
+{
+	TCHAR szExeName[MAX_PATH];
+	GetModuleFileName(hInst, szExeName, MAX_PATH);
+
+	FILEINFO fInfo(szExeName, 0);
+
+	int cnt = 0;
+
+	PROCESSENTRY32 entry;
+	entry.dwSize = sizeof(PROCESSENTRY32);
+
+	HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+
+	if (Process32First(snapshot, &entry))
+	{
+		while (Process32Next(snapshot, &entry))
+		{
+			if (!lstrcmp(fInfo.name(), entry.szExeFile))
+			{
+				cnt++;
+			}
+		}
+	}
+
+	return cnt <= 1;
+}
+
 inline void ReadConfig() 
 {
 
@@ -296,7 +324,12 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 				EXEMPT* exempt = exemptHead.pnext;
 				while (exempt)
 				{
-					if (ProcessRegex(exempt->name, fInfo.fullpath)) bMove = false;
+					bool bfind = false;
+					for (auto ch : exempt->name)
+					{
+						if (ch == TEXT('\\')) bfind = true;
+					}
+					if (bfind ? ProcessRegex(exempt->name, fInfo.fullpath) : ProcessRegex(exempt->name, fInfo.name())) bMove = false;
 					exempt = exempt->pnext;
 				}
 				if (!bMove) continue;
@@ -305,7 +338,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 					if (szDefaultMovePath[0] == TEXT('\0')) continue;
 					wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, szDefaultMovePath, (int)time(NULL), pFileNotifyInfo->FileName);
 					if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, szDefaultMovePath, (int)time(NULL), pFileNotifyInfo->FileName);
+						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\folder-%ws-%d"), szDesktopPath, szDefaultMovePath, pFileNotifyInfo->FileName, (int)time(NULL));
 					else
 						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, szDefaultMovePath, pFileNotifyInfo->FileName);
 				}
@@ -313,7 +346,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 				{
 					wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
 					if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
+						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\folder-%ws-%d"), szDesktopPath, p->path, pFileNotifyInfo->FileName, (int)time(NULL));
 					else
 						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
 				}
@@ -336,6 +369,12 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	HWND hWnd;
 
 	hInst = hInstance;
+
+	if (!CheckSingleInstance())
+	{
+		MessageBox(NULL, TEXT("Another instance of this program is already running!"), TEXT("Error!"), MB_ICONERROR);
+		ExitProcess(0);
+	}
 
 	hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, NULL, NULL, hInstance, NULL);
@@ -998,12 +1037,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		case ID_X_FIND:
 		{
 			CreateThread(NULL, 0, FindFileDlg, hWnd, 0, NULL);
-			break;
-		}
-		case ID_X_MOVE:
-		{
-			MoveQueue();
-			hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 			break;
 		}
 		default:

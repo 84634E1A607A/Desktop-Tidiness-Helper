@@ -100,6 +100,8 @@ void MoveQueue();
 
 void trim(LPTSTR str);
 
+bool CheckSingleInstance();
+
 void ReadConfig();
 
 DWORD WINAPI Monitor(LPVOID lpParameter);
