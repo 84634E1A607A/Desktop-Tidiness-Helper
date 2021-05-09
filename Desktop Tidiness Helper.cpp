@@ -32,7 +32,7 @@ TCHAR szLogBuffer[256];
 TCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH], szDefaultMovePath[MAX_PATH];
 HANDLE hConfigfile, hQueuefile, hLogfile;
 NOTIFYICONDATA NotifyIconData;
-bool bPaused, bCopyUDisk;
+bool bPaused, bCopyUDisk, bDeleteIndexOnEject;
 HMENU hMenu;
 
 
@@ -107,7 +107,7 @@ inline void trim(LPTSTR str)
 
 inline void ReadConfig() 
 {
-	
+
 	if (hConfigfile == INVALID_HANDLE_VALUE) 
 	{
 		wsprintf(szLogBuffer, szgLogs[5], CurTime());
@@ -115,14 +115,20 @@ inline void ReadConfig()
 		hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 		UCHAR BOM[] = { 0xFF,0xFE };
 		TCHAR szString1[] = TEXT("# Config\n\n");
-		TCHAR szString2[] = TEXT("DefaultMovePath=\"\"\n\n");
-		TCHAR szString3[] = TEXT("CopyUDisk=false\n\n");
+		TCHAR szString2[] = TEXT("DefaultMovePath = \"\"\n");
+		TCHAR szString3[] = TEXT("CopyUDisk = false\n");
+		TCHAR szString4[] = TEXT("DeleteIndexOnEject = false\n");
+		TCHAR szString5[] = TEXT("Exempt = \".lnk\"\n");
 		WriteFile(hConfigfile, szString1, sizeof(szString1) - sizeof(TCHAR), &dwTmpNULL, NULL);
 		WriteFile(hConfigfile, szString2, sizeof(szString2) - sizeof(TCHAR), &dwTmpNULL, NULL);
 		WriteFile(hConfigfile, szString3, sizeof(szString3) - sizeof(TCHAR), &dwTmpNULL, NULL);
+		WriteFile(hConfigfile, szString4, sizeof(szString4) - sizeof(TCHAR), &dwTmpNULL, NULL);
+		WriteFile(hConfigfile, szString5, sizeof(szString5) - sizeof(TCHAR), &dwTmpNULL, NULL);
 	}
 	else 
 	{
+		bCopyUDisk = false;
+		bDeleteIndexOnEject = false;
 		TCHAR line[512] = TEXT("");
 		DWORD fSize = GetFileSize(hConfigfile, NULL);
 		LPTSTR pFileContent = new TCHAR[(long long)fSize / 2 + 1];
@@ -211,6 +217,14 @@ inline void ReadConfig()
 					bCopyUDisk = true;
 				}
 			}
+
+			if (!lstrcmp(key, TEXT("DeleteIndexOnEject")))
+			{
+				if (!lstrcmp(value, TEXT("true")))
+				{
+					bDeleteIndexOnEject = true;
+				}
+			}
 		}
 	}
 }
@@ -232,10 +246,11 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 	}
 	
 	DWORD* Buf = new DWORD[8192], *Buf2 = new DWORD[1024], dwRet;
+	RtlZeroMemory(Buf2, 1024 * sizeof(DWORD));
 	FILE_NOTIFY_INFORMATION* pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf, *pFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf2;
 	while (true)
 	{
-		RtlZeroMemory(pFirstFileNotifyInfo, 8192);
+		RtlZeroMemory(pFirstFileNotifyInfo, 8192 * sizeof(DWORD));
 		BOOL Ret = ReadDirectoryChangesW(hDirectory, pFirstFileNotifyInfo, 8192, FALSE,
 			FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME,
 			&dwRet, NULL, NULL);
@@ -248,7 +263,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 			wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
 			return -1;
 		}
-		if (pFirstFileNotifyInfo->Action == FILE_ACTION_ADDED) 
+		if (pFirstFileNotifyInfo->Action == FILE_ACTION_ADDED || pFirstFileNotifyInfo->Action == FILE_ACTION_MODIFIED) 
 		{
 			Sleep(50);
 			do 
@@ -256,7 +271,6 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 				RtlZeroMemory(pFileNotifyInfo, 1024);
 				memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? static_cast<size_t>(pFirstFileNotifyInfo->NextEntryOffset) - 1 : 1024);
 				pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
-				if (!lstrcmp(pFileNotifyInfo->FileName + pFileNotifyInfo->FileNameLength - 4, TEXT(".lnk"))) continue;
 				TCHAR fname[MAX_PATH], szFullName[MAX_PATH];
 				wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
 				WIN32_FIND_DATAW fdata = {};
@@ -278,6 +292,14 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 					p = p->pnext;
 				}
 				TCHAR szMovedName[MAX_PATH], szOriginalMovedName[MAX_PATH], szOriginalName[MAX_PATH];
+				bool bMove = true;
+				EXEMPT* exempt = exemptHead.pnext;
+				while (exempt)
+				{
+					if (ProcessRegex(exempt->name, fInfo.fullpath)) bMove = false;
+					exempt = exempt->pnext;
+				}
+				if (!bMove) continue;
 				if (!p)
 				{
 					if (szDefaultMovePath[0] == TEXT('\0')) continue;
@@ -402,7 +424,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	hMenu = LoadMenu(hInstance, MAKEINTRESOURCE(IDR_MENU1));
 
 	// Initial Scan
-	for (int i = 3; i < 26; i++) 
+	for (int i = 3; i < 26; i++)
 	{
 		DeviceArrivalHandler(i);
 	}
@@ -475,6 +497,15 @@ DWORD WINAPI ConfigEditHandler(LPVOID lpParameter)
 		pd = driveHead.pnext;
 	}
 
+	//Clear exempt list
+	EXEMPT* pe = exemptHead.pnext;
+	while (pe)
+	{
+		exemptHead.pnext = pe->pnext;
+		delete pe;
+		pe = exemptHead.pnext;
+	}
+
 	// Exec
 	SHELLEXECUTEINFO ExecInfo = {};
 	ExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
@@ -499,6 +530,13 @@ DWORD WINAPI ConfigEditHandler(LPVOID lpParameter)
 	wsprintf(szLogBuffer, szgLogs[9], CurTime());
 	WriteLog();
 	bPaused = false;
+
+	//Scan
+	for (int i = 3; i < 26; i++)
+	{
+		DeviceArrivalHandler(i);
+	}
+
 	return 0;
 }
 
@@ -698,11 +736,44 @@ INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM l
 	return 0;
 }
 
-vector<size_t> ProcessRegex(LPCTSTR regex, LPCTSTR target)
+bool ProcessRegex(LPCTSTR regex, LPCTSTR target)
 {
 	vector<size_t> index;
-
-	return vector<size_t>();
+	vector<wstring> substrs;
+	wstring sregex(regex), starget(target);
+	if (!sregex.size()) return true;
+	if (!starget.size()) return false;
+	size_t szfind = 0;
+	while (szfind < sregex.size())
+	{
+		index.push_back(szfind = sregex.find(TEXT('*')));
+	}
+	size_t i = 0;
+	while (i < index.size())
+	{
+		if (i + 1 < index.size())
+		{
+			if (index[i + 1] - index[i] > 1)
+			{
+				substrs.push_back(sregex.substr(index[i] + 1, index[i + 1] - index[i] - 1));
+			}
+		}
+		else
+		{
+			if (index[i] < sregex.size() - 1)
+			{
+				substrs.push_back(sregex.substr(index[i] + 1, sregex.size() - index[i] - 1));
+			}
+		}
+		i++;
+	}
+	i = 0, szfind = 0;
+	while (i < substrs.size() && szfind < sregex.size())
+	{
+		szfind = starget.find(substrs[i], szfind);
+		szfind++;
+	}
+	return szfind < sregex.size();
 }
 
 vector<wstring> FindInUDisk(LPCTSTR fname)
@@ -863,6 +934,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				if (p)
 				{
 					p->isavailable = false;
+					if (bDeleteIndexOnEject)
+					{
+						p->files.clear();
+						p->files.shrink_to_fit();
+					}
 				}
 				
 				// Log device removal
@@ -924,6 +1000,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			CreateThread(NULL, 0, FindFileDlg, hWnd, 0, NULL);
 			break;
 		}
+		case ID_X_MOVE:
+		{
+			MoveQueue();
+			hQueuefile = CreateFile(szQueuefilePath, FILE_GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+			break;
+		}
 		default:
 			break;
 		}
@@ -962,8 +1044,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 					 _In_ LPWSTR    lpCmdLine,
 					 _In_ int       nCmdShow)
 {
-	MyRegisterClass(hInstance); if (!InitInstance (hInstance, nCmdShow)) return FALSE;
+	MyRegisterClass(hInstance); 
+	if (!InitInstance (hInstance, nCmdShow)) return FALSE;
 	MSG msg;
-	while (GetMessage(&msg, NULL, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessage(&msg); }
+	while (GetMessage(&msg, NULL, 0, 0) > 0) 
+	{ 
+		TranslateMessage(&msg); 
+		DispatchMessage(&msg); 
+	}
 	return (int) msg.wParam;
 }

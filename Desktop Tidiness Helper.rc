@@ -57,6 +57,7 @@ BEGIN
         MENUITEM "View log",                    ID_X_VIEWLOG
         MENUITEM "Edit config",                 ID_X_EDITCONFIG
         MENUITEM "Search in USB",               ID_X_FIND
+        MENUITEM "Move",                        ID_X_MOVE
         MENUITEM "Exit",                        ID_X_EXIT
     END
 END

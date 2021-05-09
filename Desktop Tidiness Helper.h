@@ -122,7 +122,7 @@ DWORD WINAPI FindFileDlg(LPVOID unused);
 
 INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM lParam);
 
-vector<size_t> ProcessRegex(LPCTSTR regex, LPCTSTR target);
+bool ProcessRegex(LPCTSTR regex, LPCTSTR target);
 
 vector<wstring> FindInUDisk(LPCTSTR fname);
 
