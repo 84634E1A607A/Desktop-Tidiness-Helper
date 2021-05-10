@@ -102,6 +102,20 @@ void trim(LPTSTR str);
 
 bool CheckSingleInstance();
 
+template<typename _Ptr>
+void DeleteList(_Ptr pListHead)
+{
+	_Ptr pThis = pListHead->pnext;
+	while (pThis)
+	{
+		pListHead->pnext = pThis->pnext;
+		delete pThis;
+		pThis = pListHead->pnext;
+	}
+}
+
+void LoadExempt(LPTSTR szExempt);
+
 void ReadConfig();
 
 DWORD WINAPI Monitor(LPVOID lpParameter);

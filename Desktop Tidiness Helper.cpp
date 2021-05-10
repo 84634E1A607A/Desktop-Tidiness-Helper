@@ -112,25 +112,69 @@ bool CheckSingleInstance()
 
 	FILEINFO fInfo(szExeName, 0);
 
-	int cnt = 0;
+	int nCount = 0;
 
-	PROCESSENTRY32 entry;
-	entry.dwSize = sizeof(PROCESSENTRY32);
+	PROCESSENTRY32 Entry;
+	Entry.dwSize = sizeof(PROCESSENTRY32);
 
-	HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+	HANDLE SnapShot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
 
-	if (Process32First(snapshot, &entry))
+	if (Process32First(SnapShot, &Entry))
 	{
-		while (Process32Next(snapshot, &entry))
+		while (Process32Next(SnapShot, &Entry))
 		{
-			if (!lstrcmp(fInfo.name(), entry.szExeFile))
+			if (!lstrcmp(fInfo.name(), Entry.szExeFile))
 			{
-				cnt++;
+				nCount++;
 			}
 		}
 	}
 
-	return cnt <= 1;
+	return nCount <= 1;
+}
+
+void LoadExempt(LPTSTR szExempt)
+{
+	wstring sExempt(szExempt);
+	size_t szFind = 0, szLast = 0;
+	EXEMPT* pExempt = &exemptHead;
+	if (sExempt.size() > 0)
+	{
+		szFind = sExempt.find(TEXT('|'), 0);
+		if (szFind < sExempt.size())
+		{
+			if (szFind > szLast + 1)
+			{
+				pExempt->pnext = new EXEMPT;
+				pExempt = pExempt->pnext;
+				pExempt->pnext = NULL;
+				lstrcpy(pExempt->name, sExempt.substr(0, szFind).c_str());
+			}
+			szLast = szFind;
+		}
+	}
+	while (szFind < sExempt.size())
+	{
+		szFind = sExempt.find(TEXT('|'), szFind + 1);
+		if (szFind < sExempt.size())
+		{
+			if (szFind > szLast + 1)
+			{
+				pExempt->pnext = new EXEMPT;
+				pExempt = pExempt->pnext;
+				pExempt->pnext = NULL;
+				lstrcpy(pExempt->name, sExempt.substr(szLast + 1, szFind).c_str());
+			}
+			szLast = szFind;
+		}
+	}
+	if (szLast + 1 < sExempt.size())
+	{
+		pExempt->pnext = new EXEMPT;
+		pExempt = pExempt->pnext;
+		pExempt->pnext = NULL;
+		lstrcpy(pExempt->name, sExempt.substr(szLast + 1, sExempt.size() - 1).c_str());
+	}
 }
 
 inline void ReadConfig() 
@@ -214,18 +258,7 @@ inline void ReadConfig()
 
 			if (!lstrcmp(key, TEXT("Exempt"))) 
 			{
-				EXEMPT* nExempt = new EXEMPT;
-				nExempt->pnext = exemptHead.pnext;
-				if (value[0] == TEXT('\"')) 
-				{
-					value[lstrlen(value) - 1] = TEXT('\0');
-					lstrcpy(nExempt->name, value + 1);
-				}
-				else 
-				{
-					lstrcpy(nExempt->name, value);
-				}
-				exemptHead.pnext = nExempt;
+				LoadExempt(value);
 			}
 
 			if (!lstrcmp(key, TEXT("DesktopPath"))) 
@@ -329,7 +362,16 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 					{
 						if (ch == TEXT('\\')) bfind = true;
 					}
-					if (bfind ? ProcessRegex(exempt->name, fInfo.fullpath) : ProcessRegex(exempt->name, fInfo.name())) bMove = false;
+					if (bfind)
+					{
+						if (ProcessRegex(exempt->name, fInfo.fullpath))
+							bMove = false;
+					}
+					else
+					{
+						if(ProcessRegex(exempt->name, fInfo.name()))
+							bMove = false;
+					}
 					exempt = exempt->pnext;
 				}
 				if (!bMove) continue;
@@ -528,22 +570,10 @@ DWORD WINAPI ConfigEditHandler(LPVOID lpParameter)
 	CloseHandle(hConfigfile);
 	
 	// Clear drive linking list
-	DRIVE* pd = driveHead.pnext;
-	while (pd) 
-	{
-		driveHead.pnext = pd->pnext;
-		delete pd;
-		pd = driveHead.pnext;
-	}
+	DeleteList(&driveHead);
 
 	//Clear exempt list
-	EXEMPT* pe = exemptHead.pnext;
-	while (pe)
-	{
-		exemptHead.pnext = pe->pnext;
-		delete pe;
-		pe = exemptHead.pnext;
-	}
+	DeleteList(&exemptHead);
 
 	// Exec
 	SHELLEXECUTEINFO ExecInfo = {};
@@ -783,9 +813,17 @@ bool ProcessRegex(LPCTSTR regex, LPCTSTR target)
 	if (!sregex.size()) return true;
 	if (!starget.size()) return false;
 	size_t szfind = 0;
+	if (sregex.size() > 0)
+	{
+		szfind = sregex.find(TEXT('*'), 0);
+		if (szfind <= sregex.size())
+			index.push_back(szfind);
+	}
 	while (szfind < sregex.size())
 	{
-		index.push_back(szfind = sregex.find(TEXT('*')));
+		szfind = sregex.find(TEXT('*'), szfind + 1);
+		if (szfind < sregex.size())
+			index.push_back(szfind);
 	}
 	size_t i = 0;
 	while (i < index.size())
@@ -806,13 +844,14 @@ bool ProcessRegex(LPCTSTR regex, LPCTSTR target)
 		}
 		i++;
 	}
-	i = 0, szfind = 0;
-	while (i < substrs.size() && szfind < sregex.size())
+	i = 0, szfind = -1;
+	while (i < substrs.size() && szfind + 1 <= sregex.size())
 	{
-		szfind = starget.find(substrs[i], szfind);
-		szfind++;
+		szfind = starget.find(substrs[i], szfind + 1);
+		if (szfind >= starget.size()) break;
+		i++;
 	}
-	return szfind < sregex.size();
+	return szfind < starget.size();
 }
 
 vector<wstring> FindInUDisk(LPCTSTR fname)
