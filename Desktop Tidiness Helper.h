@@ -5,90 +5,67 @@
 // Structs
 struct FILEINFO 
 {
-	TCHAR fullpath[MAX_PATH];
-	int name_index;
-	DWORD size = 0;
+	TCHAR szFullPath[MAX_PATH];
+	int nNameIndex;
+	DWORD dwSize = 0;
 
-	inline const TCHAR* name() const
+	inline const TCHAR* Name() const
 	{
-		return &(fullpath[name_index]);
+		return &(szFullPath[nNameIndex]);
 	}
 
-	FILEINFO(LPWSTR p, DWORD s) :size(s)
+	FILEINFO(LPTSTR _szPath, DWORD _dwSize) :dwSize(_dwSize)
 	{ 
-		lstrcpy(fullpath, p);
-		initname(); 
+		lstrcpy(szFullPath, _szPath);
+		InitName(); 
 	}
-	FILEINFO() :fullpath(TEXT("")), name_index(0), size(0){}
-	bool operator< (const FILEINFO r) const 
+	FILEINFO() :szFullPath(TEXT("")), nNameIndex(0), dwSize(0){}
+	bool operator< (const FILEINFO FileInfo) const 
 	{
-		return lstrcmp(name(), r.name()) < 0;
+		return lstrcmp(Name(), FileInfo.Name()) < 0;
 	}
-	bool operator== (const FILEINFO r) const
+	bool operator== (const FILEINFO FileInfo) const
 	{
-		return (!lstrcmp(name(), r.name())) && size == r.size;
+		return (!lstrcmp(Name(), FileInfo.Name())) && dwSize == FileInfo.dwSize;
 	}
-	FILEINFO operator=(const FILEINFO r)
+	FILEINFO operator=(const FILEINFO FileInfo)
 	{
-		lstrcpy(fullpath, r.fullpath);
-		name_index = r.name_index;
-		size = r.size;
+		lstrcpy(szFullPath, FileInfo.szFullPath);
+		nNameIndex = FileInfo.nNameIndex;
+		dwSize = FileInfo.dwSize;
 		return *this;
 	}
 
-	void initname()
+	void InitName()
 	{
-		int l = static_cast<int>(lstrlen(fullpath)), i;
-		if (l == 0)
+		int nLength = static_cast<int>(lstrlen(szFullPath)), nIndex;
+		if (nLength == 0)
 		{
-			name_index = 0;
+			nNameIndex = 0;
 			return;
 		}
-		for (i = l - 1; fullpath[i] != TEXT('\\'); i--)
+		for (nIndex = nLength - 1; szFullPath[nIndex] != TEXT('\\'); nIndex--)
 		{
-			if (i < 0) break;
+			if (nIndex < 0) break;
 		}
-		name_index = i + 1;
-	}
-	void getdir(TCHAR* path) const
-	{
-		int l = static_cast<int>(lstrlen(fullpath)), i;
-		if (l == 0)
-		{
-			path[0] = TEXT('\0');
-			return;
-		}
-		for (i = l - 1; fullpath[i] != TEXT('\\'); i--)
-		{
-			if (i < 0) break;
-		}
-		for (int j = 0; j <= i - 1; j++)
-		{
-			path[j] = fullpath[j];
-		}
-	}
-
-	wstring dir() const
-	{
-		wstring _fullpath(fullpath);
-		return std::move(_fullpath.substr(0, _fullpath.rfind(TEXT('\\'))));
+		nNameIndex = nIndex + 1;
 	}
 };
 
 struct DRIVE 
 {
-	DWORD uuid = 0;
-	TCHAR path[MAX_PATH] = TEXT("");
-	TCHAR letter[3] = TEXT("");
-	vector<FILEINFO> files;
-	volatile bool isavailable = false;
-	DRIVE* pnext = NULL;
+	DWORD dwUUID = 0;
+	TCHAR szPath[MAX_PATH] = TEXT("");
+	TCHAR szLetter[3] = TEXT("");
+	vector<FILEINFO> vFiles;
+	volatile bool bIsAvailable = false;
+	DRIVE* pNext = NULL;
 } driveHead, curDriveHead;
 
 struct EXEMPT 
 {
-	TCHAR name[MAX_PATH] = TEXT("");
-	EXEMPT* pnext = NULL;
+	TCHAR szName[MAX_PATH] = TEXT("");
+	EXEMPT* pNext = NULL;
 } exemptHead;
 
 
@@ -98,19 +75,19 @@ const LPWSTR CurTime();
 
 void MoveQueue();
 
-void trim(LPTSTR str);
+void Trim(LPTSTR szString);
 
 bool CheckSingleInstance();
 
 template<typename _Ptr>
 void DeleteList(_Ptr pListHead)
 {
-	_Ptr pThis = pListHead->pnext;
+	_Ptr pThis = pListHead->pNext;
 	while (pThis)
 	{
-		pListHead->pnext = pThis->pnext;
+		pListHead->pNext = pThis->pNext;
 		delete pThis;
-		pThis = pListHead->pnext;
+		pThis = pListHead->pNext;
 	}
 }
 
@@ -124,7 +101,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow);
 
 void ExitInstance();
 
-vector<FILEINFO> IndexerWorker(LPWSTR dir, DRIVE* pDrive);
+vector<FILEINFO> IndexerWorker(LPTSTR szDir, DRIVE* pDrive);
 
 DWORD WINAPI Indexer(LPVOID lpParameter);
 
@@ -132,21 +109,21 @@ DWORD WINAPI ConfigEditHandler(LPVOID lpParameter);
 
 DWORD WINAPI CopyUDisk(LPVOID pDrive);
 
-void DeviceArrivalHandler(int volumeIndex);
+void DeviceArrivalHandler(int nVolumeIndex);
 
-DWORD WINAPI FindFileDlg(LPVOID unused);
+DWORD WINAPI FindFileDlg(LPVOID lpUnused);
 
 INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM lParam);
 
-bool ProcessRegex(LPCTSTR regex, LPCTSTR target);
+bool ProcessRegex(LPCTSTR szRegex, LPCTSTR szTarget);
 
-vector<wstring> FindInUDisk(LPCTSTR fname);
+vector<wstring> FindInUDisk(LPCTSTR szFileName);
 
-void CopyToClipBoard(LPCTSTR fname);
+void CopyToClipBoard(LPCTSTR szFileName);
 
-void OpenIn(LPCTSTR exename, LPCTSTR cmdline);
+void OpenIn(LPCTSTR szExeName, LPCTSTR szCmdLine);
 
-void GetFileInfo(LPCTSTR fname, LPTSTR info);
+void GetFileInfo(LPCTSTR szFileName, LPTSTR szInfo);
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 

@@ -45,11 +45,11 @@ inline void WriteLog()
 
 const LPWSTR CurTime() 
 {
-	time_t t = time(NULL);
-	tm* ct = localtime(&t);
-	static TCHAR szt[32] = TEXT("");
-	swprintf(szt, 32, TEXT("%02d-%02d %02d:%02d:%02d"), ct->tm_mon + 1, ct->tm_mday, ct->tm_hour, ct->tm_min, ct->tm_sec);
-	return szt;
+	time_t tTime = time(NULL);
+	tm* tmTime = localtime(&tTime);
+	static TCHAR szTime[32] = TEXT("");
+	swprintf(szTime, 32, TEXT("%02d-%02d %02d:%02d:%02d"), tmTime->tm_mon + 1, tmTime->tm_mday, tmTime->tm_hour, tmTime->tm_min, tmTime->tm_sec);
+	return szTime;
 }
 
 inline void MoveQueue() 
@@ -95,14 +95,14 @@ inline void MoveQueue()
 }
 
 // Trim; Delete Notes
-inline void trim(LPTSTR str) 
+inline void Trim(LPTSTR szString) 
 {
-	int ps = 0, pe = 0, len = lstrlen(str);
-	while (str[ps] == TEXT(' ') || str[ps] == TEXT('\t') || str[ps] == TEXT('\"')) ps++;
-	while (str[pe] != TEXT('#') && pe < len) pe++;
-	while (pe && (str[pe - 1] == TEXT(' ') || str[pe - 1] == TEXT('\t') || str[pe - 1] == TEXT('\n') || str[pe - 1] == TEXT('\"'))) pe--;
-	len = pe, str[len] = TEXT('\0');
-	for (int i = 0; i <= len; i++) str[i] = str[ps + i];
+	int nStartPos = 0, nEndPos = 0, nLength = lstrlen(szString);
+	while (szString[nStartPos] == TEXT(' ') || szString[nStartPos] == TEXT('\t') || szString[nStartPos] == TEXT('\"')) nStartPos++;
+	while (szString[nEndPos] != TEXT('#') && nEndPos < nLength) nEndPos++;
+	while (nEndPos && (szString[nEndPos - 1] == TEXT(' ') || szString[nEndPos - 1] == TEXT('\t') || szString[nEndPos - 1] == TEXT('\n') || szString[nEndPos - 1] == TEXT('\"'))) nEndPos--;
+	nLength = nEndPos, szString[nLength] = TEXT('\0');
+	for (int i = 0; i <= nLength; i++) szString[i] = szString[nStartPos + i];
 }
 
 bool CheckSingleInstance()
@@ -123,7 +123,7 @@ bool CheckSingleInstance()
 	{
 		while (Process32Next(SnapShot, &Entry))
 		{
-			if (!lstrcmp(fInfo.name(), Entry.szExeFile))
+			if (!lstrcmp(fInfo.Name(), Entry.szExeFile))
 			{
 				nCount++;
 			}
@@ -140,40 +140,27 @@ void LoadExempt(LPTSTR szExempt)
 	EXEMPT* pExempt = &exemptHead;
 	if (sExempt.size() > 0)
 	{
-		szFind = sExempt.find(TEXT('|'), 0);
-		if (szFind < sExempt.size())
+		while (true)
 		{
+			szFind = sExempt.find(TEXT('|'), szFind);
+			if (szFind == wstring::npos) break;
 			if (szFind > szLast + 1)
 			{
-				pExempt->pnext = new EXEMPT;
-				pExempt = pExempt->pnext;
-				pExempt->pnext = NULL;
-				lstrcpy(pExempt->name, sExempt.substr(0, szFind).c_str());
+				pExempt->pNext = new EXEMPT;
+				pExempt = pExempt->pNext;
+				pExempt->pNext = NULL;
+				lstrcpy(pExempt->szName, sExempt.substr(szLast + 1, szFind - 1).c_str());
 			}
 			szLast = szFind;
+			szFind++;
 		}
-	}
-	while (szFind < sExempt.size())
-	{
-		szFind = sExempt.find(TEXT('|'), szFind + 1);
-		if (szFind < sExempt.size())
+		if (szLast + 1 < sExempt.size())
 		{
-			if (szFind > szLast + 1)
-			{
-				pExempt->pnext = new EXEMPT;
-				pExempt = pExempt->pnext;
-				pExempt->pnext = NULL;
-				lstrcpy(pExempt->name, sExempt.substr(szLast + 1, szFind).c_str());
-			}
-			szLast = szFind;
+			pExempt->pNext = new EXEMPT;
+			pExempt = pExempt->pNext;
+			pExempt->pNext = NULL;
+			lstrcpy(pExempt->szName, sExempt.substr(szLast + 1, sExempt.size() - 1).c_str());
 		}
-	}
-	if (szLast + 1 < sExempt.size())
-	{
-		pExempt->pnext = new EXEMPT;
-		pExempt = pExempt->pnext;
-		pExempt->pnext = NULL;
-		lstrcpy(pExempt->name, sExempt.substr(szLast + 1, sExempt.size() - 1).c_str());
 	}
 }
 
@@ -201,87 +188,87 @@ inline void ReadConfig()
 	{
 		bCopyUDisk = false;
 		bDeleteIndexOnEject = false;
-		TCHAR line[512] = TEXT("");
-		DWORD fSize = GetFileSize(hConfigfile, NULL);
-		LPTSTR pFileContent = new TCHAR[(long long)fSize / 2 + 1];
+		TCHAR szLine[512] = TEXT("");
+		DWORD dwFileSize = GetFileSize(hConfigfile, NULL);
+		LPTSTR pFileContent = new TCHAR[(long long)dwFileSize / 2 + 1];
 		if (!ReadFile(hConfigfile, pFileContent, 2, &dwTmpNULL, NULL))
 			return;
-		RtlZeroMemory(pFileContent, fSize + sizeof(TCHAR));
-		if (!ReadFile(hConfigfile, pFileContent, fSize, &dwTmpNULL, NULL))
+		RtlZeroMemory(pFileContent, dwFileSize + sizeof(TCHAR));
+		if (!ReadFile(hConfigfile, pFileContent, dwFileSize, &dwTmpNULL, NULL))
 			return;
-		TCHAR* ps = pFileContent, * pe = pFileContent - 1;
+		TCHAR* pStart = pFileContent, * pEnd = pFileContent - 1;
 		while (true) 
 		{
 			
-			if (*pe == TEXT('\0')) break;
-			ps = pe + 1; pe = ps;
-			while ((*pe != TEXT('\n')) && *pe != TEXT('\0')) pe++;
-			RtlZeroMemory(line, 512 * sizeof(TCHAR));
-			memcpy(line, ps, (pe - ps + 1) * sizeof(TCHAR));
+			if (*pEnd == TEXT('\0')) break;
+			pStart = pEnd + 1; pEnd = pStart;
+			while ((*pEnd != TEXT('\n')) && *pEnd != TEXT('\0')) pEnd++;
+			RtlZeroMemory(szLine, 512 * sizeof(TCHAR));
+			memcpy(szLine, pStart, (pEnd - pStart + 1) * sizeof(TCHAR));
 
-			trim(line);
-			int len = lstrlen(line);
-			if (!len) continue;
+			Trim(szLine);
+			int nLen = lstrlen(szLine);
+			if (!nLen) continue;
 
 			// Drive UUID row
-			if (line[0] == TEXT('[')) 
+			if (szLine[0] == TEXT('[')) 
 			{
-				if (line[len - 1] == TEXT(']')) line[--len] = TEXT('\0');
+				if (szLine[nLen - 1] == TEXT(']')) szLine[--nLen] = TEXT('\0');
 				DRIVE* nDrive = new DRIVE;
-				nDrive->pnext = driveHead.pnext;
-				nDrive->uuid = _ttoi(line + 1);
-				driveHead.pnext = nDrive;
+				nDrive->pNext = driveHead.pNext;
+				nDrive->dwUUID = _ttoi(szLine + 1);
+				driveHead.pNext = nDrive;
 				continue;
 			}
 
 			// Config row
-			TCHAR key[MAX_PATH] = TEXT(""), value[MAX_PATH] = TEXT("");
-			int p = 0;
-			while (line[p] != TEXT('=') && p < len) p++;
-			if (p == len) continue;
-			memcpy(key, line, p * sizeof(TCHAR)), trim(key);
-			lstrcpy(value, line + p + 1), trim(value);
+			TCHAR szKey[MAX_PATH] = TEXT(""), szValue[MAX_PATH] = TEXT("");
+			int nPos = 0;
+			while (szLine[nPos] != TEXT('=') && nPos < nLen) nPos++;
+			if (nPos == nLen) continue;
+			memcpy(szKey, szLine, nPos * sizeof(TCHAR)), Trim(szKey);
+			lstrcpy(szValue, szLine + nPos + 1), Trim(szValue);
 			
-			if (!lstrcmp(key, TEXT("MovePath"))) 
+			if (!lstrcmp(szKey, TEXT("MovePath"))) 
 			{
-				if (!driveHead.pnext || driveHead.pnext->path[0] != TEXT('\0')) continue;
-				if (value[0] == TEXT('\"')) 
+				if (!driveHead.pNext || driveHead.pNext->szPath[0] != TEXT('\0')) continue;
+				if (szValue[0] == TEXT('\"')) 
 				{ 
-					value[lstrlen(value) - 1] = TEXT('\0');
-					lstrcpy(driveHead.pnext->path, value + 1);
+					szValue[lstrlen(szValue) - 1] = TEXT('\0');
+					lstrcpy(driveHead.pNext->szPath, szValue + 1);
 				}
 				else
 				{
-					lstrcpy(driveHead.pnext->path, value);
+					lstrcpy(driveHead.pNext->szPath, szValue);
 				}
 			}
 
-			if (!lstrcmp(key, TEXT("Exempt"))) 
+			if (!lstrcmp(szKey, TEXT("Exempt"))) 
 			{
-				LoadExempt(value);
+				LoadExempt(szValue);
 			}
 
-			if (!lstrcmp(key, TEXT("DesktopPath"))) 
+			if (!lstrcmp(szKey, TEXT("DesktopPath"))) 
 			{
-				lstrcpy(szDesktopPath, value);
+				lstrcpy(szDesktopPath, szValue);
 			} 
 
-			if (!lstrcmp(key, TEXT("DefaultMovePath"))) 
+			if (!lstrcmp(szKey, TEXT("DefaultMovePath"))) 
 			{
-				lstrcpy(szDefaultMovePath, value);
+				lstrcpy(szDefaultMovePath, szValue);
 			}
 
-			if (!lstrcmp(key, TEXT("CopyUDisk"))) 
+			if (!lstrcmp(szKey, TEXT("CopyUDisk"))) 
 			{
-				if (!lstrcmp(value, TEXT("true"))) 
+				if (!lstrcmp(szValue, TEXT("true"))) 
 				{
 					bCopyUDisk = true;
 				}
 			}
 
-			if (!lstrcmp(key, TEXT("DeleteIndexOnEject")))
+			if (!lstrcmp(szKey, TEXT("DeleteIndexOnEject")))
 			{
-				if (!lstrcmp(value, TEXT("true")))
+				if (!lstrcmp(szValue, TEXT("true")))
 				{
 					bDeleteIndexOnEject = true;
 				}
@@ -306,21 +293,21 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 		return -1;
 	}
 	
-	DWORD* Buf = new DWORD[8192], *Buf2 = new DWORD[1024], dwRet;
-	RtlZeroMemory(Buf2, 1024 * sizeof(DWORD));
-	FILE_NOTIFY_INFORMATION* pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf, *pFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)Buf2;
+	DWORD* dwBuffer = new DWORD[8192], *dwBuffer2 = new DWORD[1024], dwRet;
+	RtlZeroMemory(dwBuffer2, 1024 * sizeof(DWORD));
+	FILE_NOTIFY_INFORMATION* pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)dwBuffer, *pFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)dwBuffer2;
 	while (true)
 	{
 		RtlZeroMemory(pFirstFileNotifyInfo, 8192 * sizeof(DWORD));
-		BOOL Ret = ReadDirectoryChangesW(hDirectory, pFirstFileNotifyInfo, 8192, FALSE,
+		BOOL bRet = ReadDirectoryChangesW(hDirectory, pFirstFileNotifyInfo, 8192, FALSE,
 			FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME,
 			&dwRet, NULL, NULL);
-		if (!Ret) 
+		if (!bRet) 
 		{
 			// Log open directory error
-			DWORD Err = GetLastError();
+			DWORD dwErr = GetLastError();
 			TCHAR szErrorMsg[128] = TEXT("");
-			FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Err, 0, szErrorMsg, 128, NULL);
+			FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, dwErr, 0, szErrorMsg, 128, NULL);
 			wsprintf(szLogBuffer, szgLogs[7], CurTime(), szErrorMsg, szDesktopPath);
 			return -1;
 		}
@@ -332,65 +319,65 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 				RtlZeroMemory(pFileNotifyInfo, 1024);
 				memcpy(pFileNotifyInfo, pFirstFileNotifyInfo, pFirstFileNotifyInfo->NextEntryOffset ? static_cast<size_t>(pFirstFileNotifyInfo->NextEntryOffset) - 1 : 1024);
 				pFirstFileNotifyInfo = (FILE_NOTIFY_INFORMATION*)((BYTE*)pFirstFileNotifyInfo + pFirstFileNotifyInfo->NextEntryOffset);
-				TCHAR fname[MAX_PATH], szFullName[MAX_PATH];
-				wsprintf(fname, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
-				WIN32_FIND_DATAW fdata = {};
+				TCHAR szFileName[MAX_PATH], szFullName[MAX_PATH];
+				wsprintf(szFileName, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
+				WIN32_FIND_DATAW FindData = {};
 				int i = 0;
-				while (!fdata.nFileSizeLow && !(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+				while (!FindData.nFileSizeLow && !(FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 				{
-					FindClose(FindFirstFile(fname, &fdata));
+					FindClose(FindFirstFile(szFileName, &FindData));
 					Sleep(20);
 					i++;
 					if (i == 100) break;
 				}
-				wsprintf(szFullName, TEXT("%ws\\%ws"), szDesktopPath, fdata.cFileName);
-				FILEINFO fInfo = { szFullName, fdata.nFileSizeLow };
-				DRIVE* p = driveHead.pnext;
-				while (p) 
+				wsprintf(szFullName, TEXT("%ws\\%ws"), szDesktopPath, FindData.cFileName);
+				FILEINFO fInfo = { szFullName, FindData.nFileSizeLow };
+				DRIVE* pDrive = driveHead.pNext;
+				while (pDrive) 
 				{
 					//auto pos = find(p->files.begin(), p->files.end(), fInfo);
-					if (binary_search(p->files.begin(), p->files.end(), fInfo)) break;
-					p = p->pnext;
+					if (binary_search(pDrive->vFiles.begin(), pDrive->vFiles.end(), fInfo)) break;
+					pDrive = pDrive->pNext;
 				}
 				TCHAR szMovedName[MAX_PATH], szOriginalMovedName[MAX_PATH], szOriginalName[MAX_PATH];
 				bool bMove = true;
-				EXEMPT* exempt = exemptHead.pnext;
-				while (exempt)
+				EXEMPT* pExempt = exemptHead.pNext;
+				while (pExempt)
 				{
-					bool bfind = false;
-					for (auto ch : exempt->name)
+					bool bFind = false;
+					for (auto ch : pExempt->szName)
 					{
-						if (ch == TEXT('\\')) bfind = true;
+						if (ch == TEXT('\\')) bFind = true;
 					}
-					if (bfind)
+					if (bFind)
 					{
-						if (ProcessRegex(exempt->name, fInfo.fullpath))
+						if (ProcessRegex(pExempt->szName, fInfo.szFullPath))
 							bMove = false;
 					}
 					else
 					{
-						if(ProcessRegex(exempt->name, fInfo.name()))
+						if(ProcessRegex(pExempt->szName, fInfo.Name()))
 							bMove = false;
 					}
-					exempt = exempt->pnext;
+					pExempt = pExempt->pNext;
 				}
 				if (!bMove) continue;
-				if (!p)
+				if (!pDrive)
 				{
 					if (szDefaultMovePath[0] == TEXT('\0')) continue;
 					wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, szDefaultMovePath, (int)time(NULL), pFileNotifyInfo->FileName);
-					if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+					if (FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\folder-%ws-%d"), szDesktopPath, szDefaultMovePath, pFileNotifyInfo->FileName, (int)time(NULL));
 					else
 						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, szDefaultMovePath, pFileNotifyInfo->FileName);
 				}
 				else
 				{
-					wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, p->path, (int)time(NULL), pFileNotifyInfo->FileName);
-					if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\folder-%ws-%d"), szDesktopPath, p->path, pFileNotifyInfo->FileName, (int)time(NULL));
+					wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, pDrive->szPath, (int)time(NULL), pFileNotifyInfo->FileName);
+					if (FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\folder-%ws-%d"), szDesktopPath, pDrive->szPath, pFileNotifyInfo->FileName, (int)time(NULL));
 					else
-						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, p->path, pFileNotifyInfo->FileName);
+						wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, pDrive->szPath, pFileNotifyInfo->FileName);
 				}
 				wsprintf(szOriginalName, TEXT("%ws\\%ws"), szDesktopPath, pFileNotifyInfo->FileName);
 				wsprintf(szLogBuffer, szgLogs[11], CurTime(), szOriginalName, szMovedName);
@@ -402,7 +389,7 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 			} while (pFileNotifyInfo->NextEntryOffset);
 		}
 	}
-	delete[] Buf, Buf2;
+	delete[] dwBuffer, dwBuffer2;
 	return 0;
 }
 
@@ -431,21 +418,21 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	lstrcat(szHomePath, TEXT("\\..\\Local\\Desktop Tidiness Helper"));
 
 	// Check if needed to create folder
-	auto attr = GetFileAttributes(szHomePath);
-	if (attr == -1 || !(attr & FILE_ATTRIBUTE_DIRECTORY))
+	DWORD dwFileAttr = GetFileAttributes(szHomePath);
+	if (dwFileAttr == -1 || !(dwFileAttr & FILE_ATTRIBUTE_DIRECTORY))
 		CreateDirectory(szHomePath, NULL);
 
 	// Init Error log
 	wsprintf(szLogfilePath, TEXT("%ws\\error.log"), szHomePath);
 	hLogfile = CreateFile(szLogfilePath, FILE_GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-	DWORD Err = GetLastError();
-	if (!Err) 
+	DWORD dwErr = GetLastError();
+	if (!dwErr) 
 	{
 		wsprintf(szLogBuffer, szgLogs[10], CurTime());
 		WriteLog();
 	}
-	LONG tmp = 0;
-	SetFilePointer(hLogfile, 0, &tmp, FILE_END);
+	LONG lTmp = 0;
+	SetFilePointer(hLogfile, 0, &lTmp, FILE_END);
 	wsprintf(szLogBuffer, szgLogs[0], CurTime());
 	WriteLog();
 
@@ -469,20 +456,20 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	// Init Desktop Path
 	if (szDesktopPath[0] == TEXT('\0')) 
 	{
-		LPITEMIDLIST pidl;
+		LPITEMIDLIST pIDL;
 		LPMALLOC pShellMalloc;
 		if (SUCCEEDED(SHGetMalloc(&pShellMalloc))) 
 		{
-			if (SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_DESKTOP, &pidl))) 
+			if (SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_DESKTOP, &pIDL))) 
 			{
-				SHGetPathFromIDList(pidl, szDesktopPath);
-				pShellMalloc->Free(pidl);
+				SHGetPathFromIDList(pIDL, szDesktopPath);
+				pShellMalloc->Free(pIDL);
 			}
 			pShellMalloc->Release();
 		}
-		TCHAR tmp[MAX_PATH] = TEXT("");
-		wsprintf(tmp, TEXT("DesktopPath = \"%ws\"\n"), szDesktopPath);
-		WriteFile(hConfigfile, tmp, lstrlen(tmp) * sizeof(TCHAR), &dwTmpNULL, NULL);
+		TCHAR chTmp[MAX_PATH] = TEXT("");
+		wsprintf(chTmp, TEXT("DesktopPath = \"%ws\"\n"), szDesktopPath);
+		WriteFile(hConfigfile, chTmp, lstrlen(chTmp) * sizeof(TCHAR), &dwTmpNULL, NULL);
 	}
 
 	// Init Monitor Thread
@@ -520,25 +507,25 @@ void ExitInstance()
 	Shell_NotifyIcon(NIM_DELETE, &NotifyIconData);
 }
 
-vector<FILEINFO> IndexerWorker(LPWSTR dir, DRIVE* pDrive) 
+vector<FILEINFO> IndexerWorker(LPTSTR szDir, DRIVE* pDrive) 
 {
 	vector<FILEINFO> fInfo;
 	WIN32_FIND_DATAW findData = {};
 	TCHAR szFindCommand[MAX_PATH], szFullName[MAX_PATH];
-	wsprintf(szFindCommand, TEXT("%ws\\*"), dir);
+	wsprintf(szFindCommand, TEXT("%ws\\*"), szDir);
 	HANDLE hFind = FindFirstFileW(szFindCommand, &findData);
 	if (hFind == INVALID_HANDLE_VALUE) return std::move(fInfo);
 	do 
 	{
 		if (!lstrcmp(findData.cFileName, TEXT(".")) || !lstrcmp(findData.cFileName, TEXT(".."))) continue;
-		wsprintf(szFullName, TEXT("%ws\\%ws"), dir, findData.cFileName);
+		wsprintf(szFullName, TEXT("%ws\\%ws"), szDir, findData.cFileName);
 		fInfo.push_back({ szFullName, findData.nFileSizeLow });
 		if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) 
 		{
-			TCHAR dfs[MAX_PATH];
-			wsprintf(dfs, TEXT("%ws\\%ws"), dir, findData.cFileName);
-			vector<FILEINFO> ret = IndexerWorker(dfs, pDrive);
-			fInfo.insert(fInfo.end(), ret.begin(), ret.end());
+			TCHAR szDFS[MAX_PATH];
+			wsprintf(szDFS, TEXT("%ws\\%ws"), szDir, findData.cFileName);
+			vector<FILEINFO> vRet = IndexerWorker(szDFS, pDrive);
+			fInfo.insert(fInfo.end(), vRet.begin(), vRet.end());
 		}
 	} while (FindNextFileW(hFind, &findData));
 	FindClose(hFind);
@@ -547,13 +534,13 @@ vector<FILEINFO> IndexerWorker(LPWSTR dir, DRIVE* pDrive)
 
 DWORD WINAPI Indexer(LPVOID lpParameter) 
 {
-	DRIVE* d = (DRIVE*)lpParameter;
-	d->files = IndexerWorker(d->letter, d);
-	for (auto& file : d->files)
+	DRIVE* pDrive = (DRIVE*)lpParameter;
+	pDrive->vFiles = IndexerWorker(pDrive->szLetter, pDrive);
+	for (auto& File : pDrive->vFiles)
 	{
-		file.initname();
+		File.InitName();
 	}
-	sort(d->files.begin(), d->files.end());
+	sort(pDrive->vFiles.begin(), pDrive->vFiles.end());
 	/*d->files.clear();
 	d->files.insert(d->files.end(), fInfo.begin(), fInfo.end());*/
 	return 0;
@@ -613,67 +600,67 @@ DWORD WINAPI CopyUDisk(LPVOID pDrive)
 {
 	DRIVE* _pDrive = (DRIVE*)pDrive;
 	TCHAR szDir[MAX_PATH];
-	wsprintf(szDir, TEXT("%ws\\%ws\\%d"), szDesktopPath, _pDrive->path, _pDrive->uuid);
-	SHFILEOPSTRUCT fo;
-	fo.hwnd = NULL;
-	fo.fAnyOperationsAborted = FALSE;
-	fo.fFlags = FOF_NO_UI; // or it will create popup windows
-	fo.hNameMappings = NULL;
-	fo.wFunc = FO_COPY;
-	fo.pFrom = _pDrive->letter;
-	fo.pTo = szDir;
-	SHFileOperation(&fo);
+	wsprintf(szDir, TEXT("%ws\\%ws\\%d"), szDesktopPath, _pDrive->szPath, _pDrive->dwUUID);
+	SHFILEOPSTRUCT FO;
+	FO.hwnd = NULL;
+	FO.fAnyOperationsAborted = FALSE;
+	FO.fFlags = FOF_NO_UI; // or it will create popup windows
+	FO.hNameMappings = NULL;
+	FO.wFunc = FO_COPY;
+	FO.pFrom = _pDrive->szLetter;
+	FO.pTo = szDir;
+	SHFileOperation(&FO);
 	return 0;
 }
 
-void DeviceArrivalHandler(int volumeIndex) {
-	TCHAR volumeLetter[] = TEXT("C:");
-	volumeLetter[0] = volumeIndex + TEXT('A');
-	TCHAR volumeName[MAX_PATH] = TEXT("");
-	DWORD serialNumber = 0, fileSystemFlags = 0;
+void DeviceArrivalHandler(int nVolumeIndex) {
+	TCHAR szVolumeLetter[] = TEXT("C:");
+	szVolumeLetter[0] = nVolumeIndex + TEXT('A');
+	TCHAR szVolumeName[MAX_PATH] = TEXT("");
+	DWORD dwSerialNumber = 0, dwFileSystemFlags = 0;
 
-	if (GetDriveType(volumeLetter) != DRIVE_REMOVABLE) return;
-	GetVolumeInformation(volumeLetter, volumeName, MAX_PATH, &serialNumber, NULL, &fileSystemFlags, NULL, 0);
+	if (GetDriveType(szVolumeLetter) != DRIVE_REMOVABLE) return;
+	GetVolumeInformation(szVolumeLetter, szVolumeName, MAX_PATH, &dwSerialNumber, NULL, &dwFileSystemFlags, NULL, 0);
 
 	// Log drive arrival
-	wsprintf(szLogBuffer, szgLogs[2], CurTime(), volumeName, volumeLetter, serialNumber);
+	wsprintf(szLogBuffer, szgLogs[2], CurTime(), szVolumeName, szVolumeLetter, dwSerialNumber);
 	WriteLog();
 
 	if (bPaused) return;
-	if (serialNumber == 0) return;
+	if (dwSerialNumber == 0) return;
 
-	DRIVE* p = driveHead.pnext;
-	while (p && p->uuid != serialNumber) p = p->pnext;
-	if (!p)
+	DRIVE* pDrive = driveHead.pNext;
+	while (pDrive && pDrive->dwUUID != dwSerialNumber) pDrive = pDrive->pNext;
+	if (!pDrive)
 	{
 		TCHAR szString1[MAX_PATH] = TEXT("");
-		wsprintf(szString1, TEXT("\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n"), serialNumber, volumeName);
+		wsprintf(szString1, TEXT("\n[%d]\n# VolumeName = %ws\nMovePath = \"\"\n"), dwSerialNumber, szVolumeName);
 		WriteFile(hConfigfile, szString1, lstrlen(szString1) * sizeof(TCHAR), &dwTmpNULL, NULL);
 		FlushFileBuffers(hConfigfile);
 		DRIVE* nDrive = new DRIVE;
-		nDrive->pnext = driveHead.pnext;
-		nDrive->uuid = serialNumber;
-		nDrive->isavailable = true;
+		nDrive->pNext = driveHead.pNext;
+		nDrive->dwUUID = dwSerialNumber;
+		nDrive->bIsAvailable = true;
 		//lstrcpy(nDrive->letter, volumeLetter);
-		driveHead.pnext = nDrive;
+		driveHead.pNext = nDrive;
 	}
 	else 
 	{
 		//if (p->path[0] == TEXT('\0')) return;
-		p->isavailable = true;
-		lstrcpy(p->letter, volumeLetter);
-		CreateThread(NULL, 0, Indexer, p, 0, NULL);
+		pDrive->bIsAvailable = true;
+		lstrcpy(pDrive->szLetter, szVolumeLetter);
+		CreateThread(NULL, 0, Indexer, pDrive, 0, NULL);
 	}
 
 	if (bCopyUDisk) 
 	{
 		//if (p->path[0] == TEXT('\0')) return;
 		Sleep(1000);
-		CreateThread(NULL, 0, CopyUDisk, p, 0, NULL);
+		CreateThread(NULL, 0, CopyUDisk, pDrive, 0, NULL);
 	}
 }
 
-DWORD WINAPI FindFileDlg(LPVOID unused)
+DWORD WINAPI FindFileDlg(LPVOID lpUnused)
 {
 	DialogBox(hInst, MAKEINTRESOURCE(IDD_FINDDIALOG), hThisWnd, FindDlgProc);
 	return 0;
@@ -701,24 +688,24 @@ INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM l
 		{
 			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_RESETCONTENT, 0, 0);
 
-			HDC hdc = GetDC(GetDlgItem(hDialog, IDC_FILELIST));
-			RECT rc;
-			GetWindowRect(GetDlgItem(hDialog, IDC_FILELIST), &rc);
-			SIZE size;
-			int maxwidth = rc.right - rc.left;
+			HDC hDC = GetDC(GetDlgItem(hDialog, IDC_FILELIST));
+			RECT rcRect;
+			GetWindowRect(GetDlgItem(hDialog, IDC_FILELIST), &rcRect);
+			SIZE szSize;
+			int nMaxWidth = rcRect.right - rcRect.left;
 
 			TCHAR szFindName[MAX_PATH];
 			GetDlgItemText(hDialog, IDC_FINDEDIT, szFindName, MAX_PATH - 1);
 			if (szFindName[0] == TEXT('\0')) break;
-			auto results = FindInUDisk(szFindName);
-			for (auto& result : results)
+			auto vResults = FindInUDisk(szFindName);
+			for (auto& sResult : vResults)
 			{
-				SendDlgItemMessage(hDialog, IDC_FILELIST, LB_ADDSTRING, 0, (LPARAM)result.c_str());
-				GetTextExtentPoint(hdc, result.c_str(), static_cast<int>(result.size() + 1), &size);
-				if (size.cx > maxwidth) maxwidth = size.cx;
+				SendDlgItemMessage(hDialog, IDC_FILELIST, LB_ADDSTRING, 0, (LPARAM)sResult.c_str());
+				GetTextExtentPoint(hDC, sResult.c_str(), static_cast<int>(sResult.size() + 1), &szSize);
+				if (szSize.cx > nMaxWidth) nMaxWidth = szSize.cx;
 			}
-			maxwidth -= 320; // maybe OK
-			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_SETHORIZONTALEXTENT, static_cast<WPARAM>(maxwidth), 0);
+			nMaxWidth -= 320; // maybe OK
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_SETHORIZONTALEXTENT, static_cast<WPARAM>(nMaxWidth), 0);
 			break;
 		}
 		case IDC_FILELIST:
@@ -729,8 +716,8 @@ INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM l
 			{
 				TCHAR szFileName[MAX_PATH], szCmdLine[MAX_PATH];
 				GetDlgItemText(hDialog, IDC_CMDEDIT, szCmdLine, MAX_PATH - 1);
-				LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
-				SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+				LRESULT lIndex = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+				SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)lIndex, (LPARAM)szFileName);
 				OpenIn(szFileName, szCmdLine);
 				break;
 			}
@@ -752,16 +739,16 @@ INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM l
 		{
 			TCHAR szFileName[MAX_PATH],szCmdLine[MAX_PATH];
 			GetDlgItemText(hDialog, IDC_CMDEDIT, szCmdLine, MAX_PATH - 1);
-			LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
-			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+			LRESULT lIndex = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)lIndex, (LPARAM)szFileName);
 			OpenIn(szFileName, szCmdLine);
 			break;
 		}
 		case IDC_OINE:
 		{
 			TCHAR szFileName[MAX_PATH], szCmdLine[MAX_PATH];
-			LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
-			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+			LRESULT lIndex = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)lIndex, (LPARAM)szFileName);
 			wsprintf(szCmdLine, TEXT("/select ,%ws"), szFileName);
 			OpenIn(TEXT("explorer.exe"), szCmdLine);
 			break;
@@ -770,8 +757,8 @@ INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM l
 		{
 			TCHAR szFileName[MAX_PATH], szCmdLine[MAX_PATH], szCmdFinal[MAX_PATH];
 			GetDlgItemText(hDialog, IDC_CMDEDIT, szCmdLine, MAX_PATH - 1);
-			LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
-			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+			LRESULT lIndex = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)lIndex, (LPARAM)szFileName);
 			wsprintf(szCmdFinal, TEXT("%ws %ws"), szFileName, szCmdLine);
 			OpenIn(TEXT("powershell.exe"), szCmdFinal);
 			break;
@@ -779,8 +766,8 @@ INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM l
 		case IDC_COPYPATH:
 		{
 			TCHAR szFileName[MAX_PATH];
-			LRESULT index = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
-			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)index, (LPARAM)szFileName);
+			LRESULT lIndex = SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETCURSEL, 0, 0);
+			SendDlgItemMessage(hDialog, IDC_FILELIST, LB_GETTEXT, (WPARAM)lIndex, (LPARAM)szFileName);
 			CopyToClipBoard(szFileName);
 			break;
 		}
@@ -805,135 +792,141 @@ INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM l
 	return 0;
 }
 
-bool ProcessRegex(LPCTSTR regex, LPCTSTR target)
+bool ProcessRegex(LPCTSTR szRegex, LPCTSTR szTarget)
 {
-	vector<size_t> index;
-	vector<wstring> substrs;
-	wstring sregex(regex), starget(target);
-	if (!sregex.size()) return true;
-	if (!starget.size()) return false;
-	size_t szfind = 0;
-	if (sregex.size() > 0)
+	vector<size_t> vIndex;
+	vector<wstring> sSubStrs;
+	wstring sRegex(szRegex), sTarget(szTarget);
+	if (!sRegex.size()) return true;
+	if (!sTarget.size()) return false;
+	for (auto& ch : sRegex)
 	{
-		szfind = sregex.find(TEXT('*'), 0);
-		if (szfind <= sregex.size())
-			index.push_back(szfind);
+		ch = towlower(ch);
 	}
-	while (szfind < sregex.size())
+	for (auto& ch : sTarget)
 	{
-		szfind = sregex.find(TEXT('*'), szfind + 1);
-		if (szfind < sregex.size())
-			index.push_back(szfind);
+		ch = towlower(ch);
 	}
-	size_t i = 0;
-	while (i < index.size())
+	size_t szFind = 0;
+	while (true)
 	{
-		if (i + 1 < index.size())
+		szFind = sRegex.find(TEXT('*'), szFind);
+		if (szFind == wstring::npos) break;
+		vIndex.push_back(szFind);
+		szFind++;
+	}
+	size_t szIndex = 0;
+	while (szIndex < vIndex.size())
+	{
+		if (szIndex + 1 < vIndex.size())
 		{
-			if (index[i + 1] - index[i] > 1)
+			if (vIndex[szIndex + 1] - vIndex[szIndex] > 1)
 			{
-				substrs.push_back(sregex.substr(index[i] + 1, index[i + 1] - index[i] - 1));
+				sSubStrs.push_back(sRegex.substr(vIndex[szIndex] + 1, vIndex[szIndex + 1] - vIndex[szIndex] - 1));
 			}
 		}
 		else
 		{
-			if (index[i] < sregex.size() - 1)
+			if (vIndex[szIndex] < sRegex.size() - 1)
 			{
-				substrs.push_back(sregex.substr(index[i] + 1, sregex.size() - index[i] - 1));
+				sSubStrs.push_back(sRegex.substr(vIndex[szIndex] + 1, sRegex.size() - vIndex[szIndex] - 1));
 			}
 		}
-		i++;
+		szIndex++;
 	}
-	i = 0, szfind = -1;
-	while (i < substrs.size() && szfind + 1 <= sregex.size())
+	if (szIndex == 0)
+		sSubStrs.push_back(sRegex);
+	szIndex = 0, szFind = 0;
+	while (szIndex < sSubStrs.size())
 	{
-		szfind = starget.find(substrs[i], szfind + 1);
-		if (szfind >= starget.size()) break;
-		i++;
+		szFind = sTarget.find(sSubStrs[szIndex], szFind);
+		if (szFind == wstring::npos) break;
+		szFind += sSubStrs[szIndex].size();
+		szIndex++;
 	}
-	return szfind < starget.size();
+	return szFind != wstring::npos;
 }
 
-vector<wstring> FindInUDisk(LPCTSTR fname)
+vector<wstring> FindInUDisk(LPCTSTR szFileName)
 {
 	DWORD dwDrives = GetLogicalDrives();
-	TCHAR volumeLetter[3] = TEXT("A:");
-	vector<DWORD> uuids;
-	vector<wstring> files;
+	TCHAR szVolumeLetter[3] = TEXT("A:");
+	vector<DWORD> vUUIDs;
+	vector<wstring> vFiles;
 	for (char i = 0; i < 26; ++i,dwDrives >>= 1)
 	{
 		if (!(dwDrives & 0x1)) continue;
-		volumeLetter[0] = i + TEXT('A');
-		if (GetDriveType(volumeLetter) != DRIVE_REMOVABLE) continue;
+		szVolumeLetter[0] = i + TEXT('A');
+		if (GetDriveType(szVolumeLetter) != DRIVE_REMOVABLE) continue;
 		TCHAR volumeName[MAX_PATH] = TEXT("");
 		DWORD serialNumber = 0, fileSystemFlags = 0;
-		GetVolumeInformation(volumeLetter, volumeName, MAX_PATH, &serialNumber, NULL, &fileSystemFlags, NULL, 0);
-		uuids.push_back(serialNumber);
+		GetVolumeInformation(szVolumeLetter, volumeName, MAX_PATH, &serialNumber, NULL, &fileSystemFlags, NULL, 0);
+		vUUIDs.push_back(serialNumber);
 	}
-	DRIVE* p = driveHead.pnext;
-	while (p)
+	DRIVE* pDrive = driveHead.pNext;
+	while (pDrive)
 	{
-		if (!p->isavailable || find(uuids.begin(), uuids.end(), p->uuid) == uuids.end())
+		if (!pDrive->bIsAvailable || find(vUUIDs.begin(), vUUIDs.end(), pDrive->dwUUID) == vUUIDs.end())
 		{
-			p = p->pnext;
+			pDrive = pDrive->pNext;
 			continue;
 		}
-		for (auto& file : p->files)
+		for (auto& File : pDrive->vFiles)
 		{
-			int head = 3, tail = 3; // skip drive letter
-			size_t ssize = lstrlen(file.fullpath), fssize = lstrlen(fname);
+			int nHead = 3, nTail = 3; // skip drive letter
+			size_t szSize = lstrlen(File.szFullPath), fssize = lstrlen(szFileName);
 
-			int cur = 0;
-			bool flag = false;
-			while (head < ssize)
+			int nCur = 0;
+			bool bFlag = false;
+			while (nHead < szSize)
 			{
-				if (fname[cur] == file.fullpath[head]
-					|| (fname[cur] >= TEXT('A') && fname[cur] <= TEXT('Z') && fname[cur] - TEXT('A') == file.fullpath[head] - TEXT('a'))
-					|| (fname[cur] >= TEXT('a') && fname[cur] <= TEXT('z') && fname[cur] - TEXT('a') == file.fullpath[head] - TEXT('A'))
+				if (szFileName[nCur] == File.szFullPath[nHead]
+					|| (szFileName[nCur] >= TEXT('A') && szFileName[nCur] <= TEXT('Z') && szFileName[nCur] - TEXT('A') == File.szFullPath[nHead] - TEXT('a'))
+					|| (szFileName[nCur] >= TEXT('a') && szFileName[nCur] <= TEXT('z') && szFileName[nCur] - TEXT('a') == File.szFullPath[nHead] - TEXT('A'))
 					)
 				{
-					flag = true;
-					cur++;
-					if (cur >= fssize) //succeeded
+					bFlag = true;
+					nCur++;
+					if (nCur >= fssize) //succeeded
 					{
-						if (head == ssize)
-							tail = head;
+						if (nHead == szSize)
+							nTail = nHead;
 						else
-							tail = head + 1;
-						while (file.fullpath[tail] != TEXT('\\') && tail < ssize)
-							tail++;
-						TCHAR tmp = file.fullpath[tail];
-						file.fullpath[tail] = TEXT('\0');
-						files.push_back(file.fullpath);
-						file.fullpath[tail] = tmp;
+							nTail = nHead + 1;
+						while (File.szFullPath[nTail] != TEXT('\\') && nTail < szSize)
+							nTail++;
+						TCHAR tmp = File.szFullPath[nTail];
+						File.szFullPath[nTail] = TEXT('\0');
+						vFiles.push_back(File.szFullPath);
+						File.szFullPath[nTail] = tmp;
 						break;
 					}
 				}
 				else
 				{
-					flag = false;
-					cur = 0;
+					bFlag = false;
+					nCur = 0;
 				}
-				head++;
+				nHead++;
 			}
-			head = tail + 1;
+			nHead = nTail + 1;
 
 		}
-		p = p->pnext;
+		pDrive = pDrive->pNext;
 	}
-	set<wstring> s(files.begin(), files.end());
-	files.assign(s.begin(), s.end());
-	return std::move(files);
+	set<wstring> s(vFiles.begin(), vFiles.end());
+	vFiles.assign(s.begin(), s.end());
+	return std::move(vFiles);
 }
 
-void CopyToClipBoard(LPCTSTR fname)
+void CopyToClipBoard(LPCTSTR szFileName)
 {
-	HGLOBAL hGlobal = GlobalAlloc(GHND, (lstrlen(fname) + static_cast<size_t>(1)) * sizeof(TCHAR));
+	HGLOBAL hGlobal = GlobalAlloc(GHND, (lstrlen(szFileName) + static_cast<size_t>(1)) * sizeof(TCHAR));
 	if (hGlobal == INVALID_HANDLE_VALUE || hGlobal == 0) return;
 	TCHAR* pGlobal = (TCHAR*)GlobalLock(hGlobal);
 	if (pGlobal != 0)
 	{
-		lstrcpy(pGlobal, fname);
+		lstrcpy(pGlobal, szFileName);
 		GlobalUnlock(hGlobal);
 
 		OpenClipboard(NULL);
@@ -943,26 +936,26 @@ void CopyToClipBoard(LPCTSTR fname)
 	}
 }
 
-void OpenIn(LPCTSTR exename, LPCTSTR cmdline)
+void OpenIn(LPCTSTR szExeName, LPCTSTR szCmdLine)
 {
-	ShellExecute(NULL, TEXT("open"), exename, cmdline, TEXT(""), SW_SHOWNORMAL);
+	ShellExecute(NULL, TEXT("open"), szExeName, szCmdLine, TEXT(""), SW_SHOWNORMAL);
 }
 
-void GetFileInfo(LPCTSTR fname, LPTSTR info)
+void GetFileInfo(LPCTSTR szFileName, LPTSTR szInfo)
 {
 	WIN32_FILE_ATTRIBUTE_DATA fAttrData;
 	FILETIME fCreationTime,fLastAccessTime,fLastWriteTime;
 	SYSTEMTIME CreationTime, LastAccessTime, LastWriteTime;
-	GetFileAttributesEx(fname, GetFileExInfoStandard, &fAttrData);
+	GetFileAttributesEx(szFileName, GetFileExInfoStandard, &fAttrData);
 	FileTimeToLocalFileTime(&fAttrData.ftCreationTime, &fCreationTime);
 	FileTimeToSystemTime(&fCreationTime, &CreationTime);
 	FileTimeToLocalFileTime(&fAttrData.ftLastAccessTime, &fLastAccessTime);
 	FileTimeToSystemTime(&fLastAccessTime, &LastAccessTime);
 	FileTimeToLocalFileTime(&fAttrData.ftLastWriteTime, &fLastWriteTime);
 	FileTimeToSystemTime(&fLastWriteTime, &LastWriteTime);
-	wsprintf(info,
+	wsprintf(szInfo,
 		TEXT("%ws [%ws]\nSize: %d Bytes\nCreation Time: %d/%02d/%02d %02d:%02d:%02d\nLast Access Time: %d/%02d/%02d %02d:%02d:%02d\nLast Write Time: %d/%02d/%02d %02d:%02d:%02d"),
-		fname,
+		szFileName,
 		(fAttrData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? TEXT("DIR") : TEXT("FILE"),
 		(fAttrData.nFileSizeHigh << 16) + fAttrData.nFileSizeLow,
 		CreationTime.wYear, CreationTime.wMonth, CreationTime.wDay, CreationTime.wHour, CreationTime.wMinute, CreationTime.wSecond,
@@ -984,43 +977,43 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	// Device Change
 	case WM_DEVICECHANGE: 
 	{
-		PDEV_BROADCAST_HDR lpdb = (PDEV_BROADCAST_HDR)lParam;
-		PDEV_BROADCAST_VOLUME lpdbv = (PDEV_BROADCAST_VOLUME)lpdb;
-		TCHAR volumeLetter[] = TEXT("C:");
+		PDEV_BROADCAST_HDR pDB = (PDEV_BROADCAST_HDR)lParam;
+		PDEV_BROADCAST_VOLUME pDBV = (PDEV_BROADCAST_VOLUME)pDB;
+		TCHAR szVolumeLetter[] = TEXT("C:");
 		switch (wParam)
 		{
 		case DBT_DEVICEARRIVAL: 
 		{
-			DWORD unitmask = lpdbv->dbcv_unitmask;
-			for (char i = 0; i < 26; ++i, unitmask >>= 1) 
+			DWORD dwUnitMask = pDBV->dbcv_unitmask;
+			for (char i = 0; i < 26; ++i, dwUnitMask >>= 1) 
 			{
-				if (!(unitmask & 0x1)) continue;
+				if (!(dwUnitMask & 0x1)) continue;
 				DeviceArrivalHandler(i);
 			}
 			break;
 		}
 		case DBT_DEVICEREMOVECOMPLETE: 
 		{
-			DWORD unitmask = lpdbv->dbcv_unitmask;
-			for (char i = 0; i < 26; ++i, unitmask >>= 1) 
+			DWORD dwUnitMask = pDBV->dbcv_unitmask;
+			for (char i = 0; i < 26; ++i, dwUnitMask >>= 1) 
 			{
-				if (!(unitmask & 0x1)) continue;
-				volumeLetter[0] = i + TEXT('A');
+				if (!(dwUnitMask & 0x1)) continue;
+				szVolumeLetter[0] = i + TEXT('A');
 	
-				DRIVE* p = driveHead.pnext;
-				while (p && p->letter[0] != volumeLetter[0]) p = p->pnext;
-				if (p)
+				DRIVE* pDrive = driveHead.pNext;
+				while (pDrive && pDrive->szLetter[0] != szVolumeLetter[0]) pDrive = pDrive->pNext;
+				if (pDrive)
 				{
-					p->isavailable = false;
+					pDrive->bIsAvailable = false;
 					if (bDeleteIndexOnEject)
 					{
-						p->files.clear();
-						p->files.shrink_to_fit();
+						pDrive->vFiles.clear();
+						pDrive->vFiles.shrink_to_fit();
 					}
 				}
 				
 				// Log device removal
-				wsprintf(szLogBuffer, szgLogs[3], CurTime(), volumeLetter);
+				wsprintf(szLogBuffer, szgLogs[3], CurTime(), szVolumeLetter);
 				WriteLog();
 			}
 			break;
@@ -1036,19 +1029,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	case UM_TRAYICON: 
 	{
 		if (bPaused) break;
-		static clock_t cl = 0;
-		clock_t cc = clock();
+		static clock_t clLast = 0;
+		clock_t clCur = clock();
 		switch LOWORD(lParam) 
 		{
 		case NIN_SELECT:
 		case NIN_KEYSELECT:
 		case WM_CONTEXTMENU: 
 		{
-			POINT pt;
-			GetCursorPos(&pt);
+			POINT Pt;
+			GetCursorPos(&Pt);
 			SetForegroundWindow(hWnd);
 			HMENU hPopupMenu = GetSubMenu(hMenu, 0);
-			TrackPopupMenu(hPopupMenu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hWnd, NULL);
+			TrackPopupMenu(hPopupMenu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, Pt.x, Pt.y, 0, hWnd, NULL);
 			break;
 		}
 		}
