@@ -62,12 +62,6 @@ struct DRIVE
 	DRIVE* pNext = NULL;
 } driveHead, curDriveHead;
 
-struct EXEMPT 
-{
-	TCHAR szName[MAX_PATH] = TEXT("");
-	EXEMPT* pNext = NULL;
-} exemptHead;
-
 
 void WriteLog();
 
@@ -91,11 +85,13 @@ void DeleteList(_Ptr pListHead)
 	}
 }
 
-void LoadExempt(LPTSTR szExempt);
+void LoadExempts(LPTSTR szExempt);
 
 void ReadConfig();
 
-DWORD WINAPI Monitor(LPVOID lpParameter);
+vector<FILEINFO> ListDir(LPTSTR szDir);
+
+//DWORD WINAPI Monitor(LPVOID lpParameter);
 
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow);
 
@@ -115,7 +111,7 @@ DWORD WINAPI FindFileDlg(LPVOID lpUnused);
 
 INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM lParam);
 
-bool ProcessRegex(LPCTSTR szRegex, LPCTSTR szTarget);
+bool ProcessRegex(wstring szRegex, LPCTSTR szTarget);
 
 vector<wstring> FindInUDisk(LPCTSTR szFileName);
 

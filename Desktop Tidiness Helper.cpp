@@ -29,8 +29,9 @@ TCHAR szgLogs[][128] = {                        // {0: Start, 1: Cfg Load, 2: De
 	TEXT("[%ws] Move pending: \"%ws\" --> \"%ws\"\n")
 };
 TCHAR szLogBuffer[256];
-TCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szDesktopPath[MAX_PATH], szDefaultMovePath[MAX_PATH];
-HANDLE hConfigfile, hQueuefile, hLogfile;
+TCHAR szHomePath[MAX_PATH], szConfigfilePath[MAX_PATH], szQueuefilePath[MAX_PATH], szLogfilePath[MAX_PATH], szLockfilePath[MAX_PATH], szDesktopPath[MAX_PATH], szDefaultMovePath[MAX_PATH];
+vector<wstring> vExempts;
+HANDLE hConfigfile, hQueuefile, hLogfile, hLockFile;
 NOTIFYICONDATA NotifyIconData;
 bool bPaused, bCopyUDisk, bDeleteIndexOnEject;
 HMENU hMenu;
@@ -107,37 +108,14 @@ inline void Trim(LPTSTR szString)
 
 bool CheckSingleInstance()
 {
-	TCHAR szExeName[MAX_PATH];
-	GetModuleFileName(hInst, szExeName, MAX_PATH);
-
-	FILEINFO fInfo(szExeName, 0);
-
-	int nCount = 0;
-
-	PROCESSENTRY32 Entry;
-	Entry.dwSize = sizeof(PROCESSENTRY32);
-
-	HANDLE SnapShot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
-
-	if (Process32First(SnapShot, &Entry))
-	{
-		while (Process32Next(SnapShot, &Entry))
-		{
-			if (!lstrcmp(fInfo.Name(), Entry.szExeFile))
-			{
-				nCount++;
-			}
-		}
-	}
-
-	return nCount <= 1;
+	hLockFile = CreateFile(szLockfilePath, FILE_GENERIC_WRITE, NULL, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	return hLockFile != INVALID_HANDLE_VALUE;
 }
 
-void LoadExempt(LPTSTR szExempt)
+void LoadExempts(LPTSTR szExempt)
 {
 	wstring sExempt(szExempt);
 	size_t szFind = 0, szLast = 0;
-	EXEMPT* pExempt = &exemptHead;
 	if (sExempt.size() > 0)
 	{
 		while (true)
@@ -145,22 +123,12 @@ void LoadExempt(LPTSTR szExempt)
 			szFind = sExempt.find(TEXT('|'), szFind);
 			if (szFind == wstring::npos) break;
 			if (szFind > szLast + 1)
-			{
-				pExempt->pNext = new EXEMPT;
-				pExempt = pExempt->pNext;
-				pExempt->pNext = NULL;
-				lstrcpy(pExempt->szName, sExempt.substr(szLast + 1, szFind - 1).c_str());
-			}
+				vExempts.push_back(sExempt.substr(szLast + 1, szFind - 1));
 			szLast = szFind;
 			szFind++;
 		}
 		if (szLast + 1 < sExempt.size())
-		{
-			pExempt->pNext = new EXEMPT;
-			pExempt = pExempt->pNext;
-			pExempt->pNext = NULL;
-			lstrcpy(pExempt->szName, sExempt.substr(szLast + 1, sExempt.size() - 1).c_str());
-		}
+			vExempts.push_back(sExempt.substr(szLast + 1, sExempt.size() - 1));
 	}
 }
 
@@ -245,7 +213,7 @@ inline void ReadConfig()
 
 			if (!lstrcmp(szKey, TEXT("Exempt"))) 
 			{
-				LoadExempt(szValue);
+				LoadExempts(szValue);
 			}
 
 			if (!lstrcmp(szKey, TEXT("DesktopPath"))) 
@@ -277,6 +245,25 @@ inline void ReadConfig()
 	}
 }
 
+vector<FILEINFO> ListDir(LPTSTR szDir)
+{
+	vector<FILEINFO> fInfo;
+	WIN32_FIND_DATAW findData = {};
+	TCHAR szFindCommand[MAX_PATH], szFullName[MAX_PATH];
+	wsprintf(szFindCommand, TEXT("%ws\\*"), szDir);
+	HANDLE hFind = FindFirstFileW(szFindCommand, &findData);
+	if (hFind == INVALID_HANDLE_VALUE) return std::move(fInfo);
+	do
+	{
+		if (!lstrcmp(findData.cFileName, TEXT(".")) || !lstrcmp(findData.cFileName, TEXT(".."))) continue;
+		wsprintf(szFullName, TEXT("%ws\\%ws"), szDir, findData.cFileName);
+		fInfo.push_back({ szFullName, (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? -1 : findData.nFileSizeLow });
+	} while (FindNextFileW(hFind, &findData));
+	FindClose(hFind);
+	return std::move(fInfo);
+}
+
+/*
 DWORD WINAPI Monitor(LPVOID lpParameter) 
 {
 
@@ -391,19 +378,13 @@ DWORD WINAPI Monitor(LPVOID lpParameter)
 	}
 	delete[] dwBuffer, dwBuffer2;
 	return 0;
-}
+} */
 
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
 	HWND hWnd;
 
 	hInst = hInstance;
-
-	if (!CheckSingleInstance())
-	{
-		MessageBox(NULL, TEXT("Another instance of this program is already running!"), TEXT("Error!"), MB_ICONERROR);
-		ExitProcess(0);
-	}
 
 	hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, NULL, NULL, hInstance, NULL);
@@ -422,8 +403,16 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	if (dwFileAttr == -1 || !(dwFileAttr & FILE_ATTRIBUTE_DIRECTORY))
 		CreateDirectory(szHomePath, NULL);
 
+	// Check Single Instance
+	wsprintf(szLockfilePath, TEXT("%ws\\running.lock"), szHomePath);
+	if (!CheckSingleInstance())
+	{
+		MessageBox(NULL, TEXT("Another instance of this program is already running!"), TEXT("Error!"), MB_ICONERROR);
+		ExitProcess(0);
+	}
+
 	// Init Error log
-	wsprintf(szLogfilePath, TEXT("%ws\\error.log"), szHomePath);
+	wsprintf(szLogfilePath, TEXT("%ws\\main.log"), szHomePath);
 	hLogfile = CreateFile(szLogfilePath, FILE_GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 	DWORD dwErr = GetLastError();
 	if (!dwErr) 
@@ -438,7 +427,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 
 	// Init Config
-	wsprintf(szConfigfilePath, TEXT("%ws\\config.ini"), szHomePath);
+	wsprintf(szConfigfilePath, TEXT("%ws\\config.conf"), szHomePath);
 	hConfigfile = CreateFile(szConfigfilePath, FILE_GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 	ReadConfig();
 	CloseHandle(hConfigfile);
@@ -472,9 +461,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		WriteFile(hConfigfile, chTmp, lstrlen(chTmp) * sizeof(TCHAR), &dwTmpNULL, NULL);
 	}
 
-	// Init Monitor Thread
-	HANDLE hMonitor = CreateThread(NULL, 0, Monitor, NULL, 0, NULL);
-
 	// Notification Icon
 	HICON hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(TRAY_ICON));
 	NotifyIconData.cbSize = sizeof(NOTIFYICONDATA);
@@ -502,6 +488,54 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 void ExitInstance() 
 {
+	vector<FILEINFO> files = ListDir(szDesktopPath);
+	for (FILEINFO& fInfo : files) {
+		DRIVE* pDrive = driveHead.pNext;
+		while (pDrive)
+		{
+			//auto pos = find(p->files.begin(), p->files.end(), fInfo);
+			if (binary_search(pDrive->vFiles.begin(), pDrive->vFiles.end(), fInfo)) break;
+			pDrive = pDrive->pNext;
+		}
+		TCHAR szMovedName[MAX_PATH], szOriginalMovedName[MAX_PATH], szOriginalName[MAX_PATH];
+		bool bMove = true;
+		for (wstring szExempt : vExempts)
+		{
+			bool bFullPath = false;
+			if (szExempt.find(TEXT("\\")) != wstring::npos) bFullPath = true;
+			if (bFullPath && ProcessRegex(szExempt, fInfo.szFullPath)) bMove = false;
+			else if (ProcessRegex(szExempt, fInfo.Name())) bMove = false;
+			else continue;
+			break;
+		}
+		if (!bMove) continue;
+		if (!pDrive)
+		{
+			if (szDefaultMovePath[0] == TEXT('\0')) continue;
+			wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, szDefaultMovePath, (int)time(NULL), fInfo.Name());
+			if (fInfo.dwSize == -1) // Dir
+				wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\folder-%ws-%d"), szDesktopPath, szDefaultMovePath, fInfo.Name(), (int)time(NULL));
+			else
+				wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, szDefaultMovePath, fInfo.Name());
+		}
+		else
+		{
+			wsprintf(szMovedName, TEXT("%ws\\%ws\\%d - %ws"), szDesktopPath, pDrive->szPath, (int)time(NULL), fInfo.Name());
+			if (fInfo.dwSize == -1)
+				wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\folder-%ws-%d"), szDesktopPath, pDrive->szPath, fInfo.Name(), (int)time(NULL));
+			else
+				wsprintf(szOriginalMovedName, TEXT("%ws\\%ws\\%ws"), szDesktopPath, pDrive->szPath, fInfo.Name());
+		}
+		wsprintf(szOriginalName, TEXT("%ws\\%ws"), szDesktopPath, fInfo.Name());
+		wsprintf(szLogBuffer, szgLogs[11], CurTime(), szOriginalName, szMovedName);
+		WriteLog();
+		WriteFile(hQueuefile, szOriginalName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
+		WriteFile(hQueuefile, szOriginalMovedName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
+		WriteFile(hQueuefile, szMovedName, MAX_PATH * sizeof(TCHAR), &dwTmpNULL, NULL);
+		FlushFileBuffers(hQueuefile);
+	}
+	// Todo
+	CloseHandle(hLockFile);
 	CloseHandle(hConfigfile);
 	CloseHandle(hQueuefile);
 	Shell_NotifyIcon(NIM_DELETE, &NotifyIconData);
@@ -560,7 +594,7 @@ DWORD WINAPI ConfigEditHandler(LPVOID lpParameter)
 	DeleteList(&driveHead);
 
 	//Clear exempt list
-	DeleteList(&exemptHead);
+	vExempts.clear();
 
 	// Exec
 	SHELLEXECUTEINFO ExecInfo = {};
@@ -792,7 +826,7 @@ INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM l
 	return 0;
 }
 
-bool ProcessRegex(LPCTSTR szRegex, LPCTSTR szTarget)
+bool ProcessRegex(wstring szRegex, LPCTSTR szTarget)
 {
 	vector<size_t> vIndex;
 	vector<wstring> sSubStrs;
