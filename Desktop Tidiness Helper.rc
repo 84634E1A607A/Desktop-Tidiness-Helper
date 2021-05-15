@@ -56,8 +56,64 @@ BEGIN
     BEGIN
         MENUITEM "View log",                    ID_X_VIEWLOG
         MENUITEM "Edit config",                 ID_X_EDITCONFIG
+        MENUITEM "Search in USB",               ID_X_FIND
         MENUITEM "Exit",                        ID_X_EXIT
     END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_FINDDIALOG DIALOGEX 0, 0, 429, 291
+STYLE DS_SETFONT | DS_MODALFRAME | DS_SETFOREGROUND | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Dialog"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    PUSHBUTTON      "Open",IDC_OPEN,121,270,50,14,BS_FLAT
+    PUSHBUTTON      "Open in explorer",IDC_OINE,173,270,67,14,BS_FLAT
+    PUSHBUTTON      "Copy full path",IDC_COPYPATH,319,270,52,14,BS_FLAT
+    PUSHBUTTON      "Open in powershell",IDC_OINP,242,270,75,14,BS_FLAT
+    PUSHBUTTON      "Exit",IDC_EXIT,373,270,50,14,BS_FLAT
+    LISTBOX         IDC_FILELIST,7,27,415,159,LBS_SORT | LBS_NOINTEGRALHEIGHT | LBS_WANTKEYBOARDINPUT | NOT WS_BORDER | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP,WS_EX_STATICEDGE
+    EDITTEXT        IDC_CMDEDIT,88,251,334,16,ES_MULTILINE | ES_AUTOHSCROLL | ES_WANTRETURN | NOT WS_BORDER,WS_EX_STATICEDGE
+    LTEXT           "Command line options:",IDC_STATIC,10,254,75,11
+    EDITTEXT        IDC_FINDEDIT,68,10,313,14,ES_MULTILINE | ES_AUTOHSCROLL | NOT WS_BORDER,WS_EX_STATICEDGE
+    LTEXT           "Find file name:",IDC_STATIC,14,12,52,9
+    PUSHBUTTON      "Find",IDC_FIND,387,10,32,14,BS_FLAT
+    LTEXT           " ",IDC_FILEINFO,15,194,407,55
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_FINDDIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 422
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 284
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_FINDDIALOG AFX_DIALOG_LAYOUT
+BEGIN
+    0
 END
 
 #endif    // 中文(简体，中国) resources

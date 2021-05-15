@@ -1,38 +1,71 @@
 #pragma once
 
-#include <stdio.h>
-#include <Dbt.h>
-#include <ShlObj.h>
-#include <shellapi.h>
-#include <time.h>
-#include <vector>
-#include <algorithm>
+#include "framework.h"
 
 // Structs
-struct FILEINFO {
-	TCHAR name[MAX_PATH] = TEXT("");
-	DWORD size = 0;
-	FILEINFO(LPWSTR n, DWORD s) { lstrcpy(name, n); size = s; }
-	FILEINFO() {}
-	bool operator< (const FILEINFO r) const {
-		return lstrcmp(this->name, r.name) < 0;
+struct FILEINFO 
+{
+	TCHAR szFullPath[MAX_PATH];
+	int nNameIndex;
+	DWORD dwSize = 0;
+
+	inline const TCHAR* Name() const
+	{
+		return &(szFullPath[nNameIndex]);
 	}
-	bool operator== (const FILEINFO r) const {
-		return !lstrcmp(this->name, r.name) && this->size == r.size;
+
+	FILEINFO(LPTSTR _szPath, DWORD _dwSize) :dwSize(_dwSize)
+	{ 
+		lstrcpy(szFullPath, _szPath);
+		InitName(); 
+	}
+	FILEINFO() :szFullPath(TEXT("")), nNameIndex(0), dwSize(0){}
+	bool operator< (const FILEINFO FileInfo) const 
+	{
+		return lstrcmp(Name(), FileInfo.Name()) < 0;
+	}
+	bool operator== (const FILEINFO FileInfo) const
+	{
+		return (!lstrcmp(Name(), FileInfo.Name())) && dwSize == FileInfo.dwSize;
+	}
+	FILEINFO operator=(const FILEINFO FileInfo)
+	{
+		lstrcpy(szFullPath, FileInfo.szFullPath);
+		nNameIndex = FileInfo.nNameIndex;
+		dwSize = FileInfo.dwSize;
+		return *this;
+	}
+
+	void InitName()
+	{
+		int nLength = static_cast<int>(lstrlen(szFullPath)), nIndex;
+		if (nLength == 0)
+		{
+			nNameIndex = 0;
+			return;
+		}
+		for (nIndex = nLength - 1; szFullPath[nIndex] != TEXT('\\'); nIndex--)
+		{
+			if (nIndex < 0) break;
+		}
+		nNameIndex = nIndex + 1;
 	}
 };
 
-struct DRIVE {
-	DWORD uuid = 0;
-	TCHAR path[MAX_PATH] = TEXT("");
-	TCHAR letter[3] = TEXT("");
-	vector<FILEINFO> files;
-	DRIVE* pnext = NULL;
-} driveHead;
+struct DRIVE 
+{
+	DWORD dwUUID = 0;
+	TCHAR szPath[MAX_PATH] = TEXT("");
+	TCHAR szLetter[3] = TEXT("");
+	vector<FILEINFO> vFiles;
+	volatile bool bIsAvailable = false;
+	DRIVE* pNext = NULL;
+} driveHead, curDriveHead;
 
-struct EXEMPT {
-	TCHAR name[MAX_PATH] = TEXT("");
-	EXEMPT* pnext = NULL;
+struct EXEMPT 
+{
+	TCHAR szName[MAX_PATH] = TEXT("");
+	EXEMPT* pNext = NULL;
 } exemptHead;
 
 
@@ -42,26 +75,56 @@ const LPWSTR CurTime();
 
 void MoveQueue();
 
-void trim(LPWSTR str);
+void Trim(LPTSTR szString);
+
+bool CheckSingleInstance();
+
+template<typename _Ptr>
+void DeleteList(_Ptr pListHead)
+{
+	_Ptr pThis = pListHead->pNext;
+	while (pThis)
+	{
+		pListHead->pNext = pThis->pNext;
+		delete pThis;
+		pThis = pListHead->pNext;
+	}
+}
+
+void LoadExempt(LPTSTR szExempt);
 
 void ReadConfig();
 
-DWORD __stdcall Monitor(LPVOID lpParameter);
+DWORD WINAPI Monitor(LPVOID lpParameter);
 
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow);
 
 void ExitInstance();
 
-vector<FILEINFO> IndexerWorker(LPWSTR dir, bool docopy, DRIVE* pDrive);
+vector<FILEINFO> IndexerWorker(LPTSTR szDir, DRIVE* pDrive);
 
-DWORD __stdcall Indexer(LPVOID lpParameter);
+DWORD WINAPI Indexer(LPVOID lpParameter);
 
-DWORD __stdcall ConfigEditHandler(LPVOID lpParameter);
+DWORD WINAPI ConfigEditHandler(LPVOID lpParameter);
 
-DWORD __stdcall CopyUDisk(LPVOID pDrive);
+DWORD WINAPI CopyUDisk(LPVOID pDrive);
 
-void DeviceArrivalHandler(int volumeIndex);
+void DeviceArrivalHandler(int nVolumeIndex);
 
-LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+DWORD WINAPI FindFileDlg(LPVOID lpUnused);
+
+INT_PTR CALLBACK FindDlgProc(HWND hDialog, UINT message, WPARAM wParam, LPARAM lParam);
+
+bool ProcessRegex(LPCTSTR szRegex, LPCTSTR szTarget);
+
+vector<wstring> FindInUDisk(LPCTSTR szFileName);
+
+void CopyToClipBoard(LPCTSTR szFileName);
+
+void OpenIn(LPCTSTR szExeName, LPCTSTR szCmdLine);
+
+void GetFileInfo(LPCTSTR szFileName, LPTSTR szInfo);
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
 ATOM MyRegisterClass(HINSTANCE hInstance);
